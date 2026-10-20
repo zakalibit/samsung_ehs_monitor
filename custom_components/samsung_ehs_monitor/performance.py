@@ -41,6 +41,34 @@ def external_watts(state, unit, *, clamp_negative=False):
     return None
 
 
+LIVE_COP_MAX_SKEW = 90
+
+
+class PowerHistory:
+    """A bounded history of actual source reports, separate from heartbeat holds."""
+
+    def __init__(self):
+        self.samples = {}
+
+    def record(self, timestamp, watts, now):
+        self.samples = {t: value for t, value in self.samples.items() if now-1800 <= t <= now}
+        if number(timestamp) and now-1800 <= timestamp <= now:
+            self.samples[timestamp] = watts if number(watts) and watts >= 0 else None
+        # Bound memory even for power meters publishing many times per second.
+        if len(self.samples) > 4096:
+            self.samples = dict(sorted(self.samples.items())[-4096:])
+
+    def closest(self, timestamp):
+        if not number(timestamp) or not self.samples:
+            return None
+        # Prefer the earlier report when the distances are equal. Do not skip
+        # invalid or zero samples to cherry-pick an older positive denominator.
+        when = min(self.samples, key=lambda t: (abs(t-timestamp), t))
+        if abs(when-timestamp) > LIVE_COP_MAX_SKEW:
+            return None
+        return when, self.samples[when]
+
+
 def net_heat_kw(metrics):
     """Signed sensible-water heat including defrost; zero only for fresh off data."""
     flow, hot, cold, frequency = (metrics.get(k) for k in (

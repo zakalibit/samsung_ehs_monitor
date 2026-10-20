@@ -51,39 +51,65 @@ def parse_payload(record, length: int, now=None):
         return None
 
 
-def latest_valid_payload(data, kind, length, now=None):
-    """Use the freshest usable packet; zero readings are valid values."""
+def latest_valid_record(data, kind, length, now=None):
+    """Return the freshest usable packet together with its source timestamp."""
     records = field(data, "main", "samsungce.ehsCycleData", kind)
     if not isinstance(records, list):
         return None
     records = sorted((row for row in records if isinstance(row, dict)),
                      key=lambda row: record_time(row) or float("-inf"), reverse=True)
-    for record in records:
-        packet = parse_payload(record, length, now)
-        if packet is not None:
-            return packet
-    return None
+    return next((row for row in records if parse_payload(row, length, now) is not None), None)
+
+
+def latest_valid_payload(data, kind, length, now=None):
+    record = latest_valid_record(data, kind, length, now)
+    return parse_payload(record, length, now) if record is not None else None
+
+
+def thermal_timestamps(data, now=None):
+    """Actual timestamps of the packets selected for the live heat estimate."""
+    inside = latest_valid_record(data, "indoor", 31, now)
+    outside = latest_valid_record(data, "outdoor", 28, now)
+    return record_time(inside), record_time(outside)
 
 
 def cycle_errors(data: dict, now=None) -> list[str]:
     """Explain rejected packets without exposing their contents or device IDs."""
     if field(data, "main", "samsungce.deviceIdentification", "binaryId") != BINARY_ID:
         return ["Unsupported or missing binary ID; cycle decoding skipped"]
+    now = now or datetime.now(timezone.utc)
     errors = []
     for kind, length in (("indoor", 31), ("outdoor", 28)):
         record = latest(data, kind)
         if record is None:
             errors.append(f"{kind}: missing cycle packet")
             continue
+        message = None
         try:
             payload = bytes.fromhex(record["data"])
         except (KeyError, TypeError, ValueError):
-            errors.append(f"{kind}: invalid or missing hexadecimal payload")
-            continue
-        if len(payload) != length:
-            errors.append(f"{kind}: incorrect payload length (expected {length} bytes)")
-        elif parse_payload(record, length, now) is None:
-            errors.append(f"{kind}: invalid timestamp, future timestamp, or packet older than 15 minutes")
+            message = "invalid or missing hexadecimal payload"
+        else:
+            if len(payload) != length:
+                message = f"incorrect payload length (expected {length} bytes)"
+            else:
+                timestamp = record_time(record)
+                current = (now or datetime.now(timezone.utc)).timestamp()
+                if timestamp is None:
+                    message = "missing or invalid timestamp (timezone required)"
+                elif timestamp > current:
+                    message = f"packet timestamp is {timestamp-current:.1f} seconds in the future"
+                elif current-timestamp > MAX_AGE_SECONDS:
+                    message = f"packet is {(current-timestamp)/60:.1f} minutes old (limit 15 minutes)"
+        if message:
+            packet_time = record_time(record)
+            decoded = datetime.fromtimestamp(packet_time, timezone.utc).isoformat() if packet_time is not None else "invalid/missing"
+            system = now.astimezone(timezone.utc).isoformat()
+            difference = f"{now.timestamp()-packet_time:.3f} seconds" if packet_time is not None else "unknown"
+            message += f"; packet timestamp (UTC): {decoded}; system timestamp (UTC): {system}; system minus packet: {difference}"
+            fallback = latest_valid_record(data, kind, length, now)
+            suffix = "; using an older valid snapshot" if fallback is not None else "; no recent valid snapshot available"
+            errors.append(f"{kind}: {message}{suffix}")
     return errors
 
 

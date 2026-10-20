@@ -67,6 +67,43 @@ class DecoderTests(unittest.TestCase):
         records.append(older)  # Older record deliberately appears last.
         self.assertEqual(decoder.decode(data, self.now)['compressor_frequency'], 0)
 
+    def test_timestamp_errors_distinguish_stale_future_and_invalid(self):
+        data = sample()
+        outdoor = data['components']['main']['samsungce.ehsCycleData']['outdoor']['value'][0]
+        for timestamp, expected in [
+            ('2026-10-19T08:40:00Z', '24.0 minutes old'),
+            ('2026-10-19T09:05:00Z', '60.0 seconds in the future'),
+            ('invalid', 'missing or invalid timestamp'),
+            ('2026-10-19T09:00:00', 'timezone required'),
+        ]:
+            outdoor['timestamp'] = timestamp
+            messages = decoder.cycle_errors(data, self.now)
+            message = next(message for message in messages if message.startswith('outdoor:'))
+            self.assertIn(expected, message)
+            self.assertIn('no recent valid snapshot', message)
+
+    def test_log_prints_packet_and_system_timestamps_in_utc(self):
+        data = sample()
+        record = data['components']['main']['samsungce.ehsCycleData']['outdoor']['value'][0]
+        record['timestamp'] = '2026-10-19T10:05:00+01:00'
+        message = decoder.cycle_errors(data, self.now)[0]
+        self.assertIn('packet timestamp (UTC): 2026-10-19T09:05:00+00:00', message)
+        self.assertIn('system timestamp (UTC): 2026-10-19T09:04:00+00:00', message)
+        self.assertIn('system minus packet: -60.000 seconds', message)
+        record['timestamp'] = None
+        message = decoder.cycle_errors(data, self.now)[0]
+        self.assertIn('packet timestamp (UTC): invalid/missing', message)
+        self.assertIn('system timestamp (UTC): 2026-10-19T09:04:00+00:00', message)
+
+    def test_warning_identifies_successful_fallback(self):
+        data = sample()
+        records = data['components']['main']['samsungce.ehsCycleData']['outdoor']['value']
+        records.append({'timestamp': '2026-10-19T09:05:00Z', 'data': records[0]['data']})
+        message = decoder.cycle_errors(data, self.now)[0]
+        self.assertIn('future', message)
+        self.assertIn('using an older valid snapshot', message)
+        self.assertEqual(decoder.decode(data, self.now)['compressor_frequency'], 0)
+
     def test_unknown_firmware(self):
         data = sample()
         data['components']['main']['samsungce.deviceIdentification']['binaryId']['value'] = 'UNKNOWN'

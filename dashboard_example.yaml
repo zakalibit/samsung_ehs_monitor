@@ -154,7 +154,7 @@ views:
           {% else %}
           | Time (UTC) | Source | Failure |
           | --- | --- | --- |
-          {% for entry in entries %}
+          {% for entry in entries -%}
           | {{ entry.timestamp }} | {{ entry.category }} | {{ entry.message }} |
           {% endfor %}
           {% endif %}

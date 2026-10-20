@@ -69,12 +69,14 @@ class SamsungEHSSensor(CoordinatorEntity, SensorEntity):
                 "power_source": self.coordinator.power_sensor,
                 "source_unit": state.attributes.get("unit_of_measurement") if state else None,
                 "electricity_7d_source": "Samsung accumulated energy counter",
+                **(self.coordinator.data.get("_cop_match", {}) if self.key == "estimated_cop" else {}),
             }
         if self.key in {"energy", "deltaEnergy", "power_raw", "electrical_input_power", "estimated_cop"}:
             report = read(self.coordinator.data, "main", "powerConsumptionReport", "powerConsumption")
             report = report if isinstance(report, dict) else {}
             return {
                 "power_source": "Samsung SmartThings",
+                **(self.coordinator.data.get("_cop_match", {}) if self.key == "estimated_cop" else {}),
                 "power_consumption_start": report.get("start"),
                 "power_consumption_end": report.get("end"),
                 "presentation_id": self.coordinator.presentation_id,

@@ -62,7 +62,10 @@ scope = dict(DataUpdateCoordinator=CoordinatorStub, callback=lambda f: f,
              async_get_clientsession=lambda h: None,
              decode=lambda data, now: data["metrics"], field=d.field,
              electrical_watts=p.electrical_watts, external_watts=p.external_watts,
-             net_heat_kw=p.net_heat_kw, instantaneous_cop=p.instantaneous_cop)
+             net_heat_kw=p.net_heat_kw, instantaneous_cop=p.instantaneous_cop,
+             PowerHistory=p.PowerHistory, LIVE_COP_MAX_SKEW=p.LIVE_COP_MAX_SKEW,
+             thermal_timestamps=lambda data, now: (now.timestamp(), now.timestamp())
+             if 'metrics' in data else d.thermal_timestamps(data, now))
 Coordinator = production_class("__init__.py", "SamsungEHSCoordinator", scope)
 
 
@@ -77,7 +80,8 @@ class ExternalPowerTests(unittest.TestCase):
             self.assertIsNone(p.external_watts(value, unit))
 
     def make(self, state="1200", unit="W", selected=True):
-        states = {"sensor.shelly_power": NS(state=state, attributes={"unit_of_measurement": unit})}
+        states = {"sensor.shelly_power": NS(state=state, attributes={"unit_of_measurement": unit},
+                                           last_reported=datetime.now(timezone.utc))}
         hass = NS(states=NS(get=states.get), config=NS(time_zone="UTC"))
         entry = NS(data={"device_id": "test", "token": "unused"}, entry_id="test",
                    options={"power_sensor": "sensor.shelly_power"} if selected else {})

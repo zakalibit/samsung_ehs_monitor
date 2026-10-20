@@ -19,8 +19,8 @@ from .daily import DailyPerformance
 from .snapshots import SnapshotHistory
 from .frontend import RESOURCE_PATH, async_register_resources
 from .dashboard import async_setup_dashboard
-from .decoder import decode, field, latest, cycle_errors
-from .performance import RollingPerformance, electrical_watts, net_heat_kw, instantaneous_cop, number, external_watts
+from .decoder import decode, field, latest, cycle_errors, thermal_timestamps
+from .performance import PowerHistory, LIVE_COP_MAX_SKEW, RollingPerformance, electrical_watts, net_heat_kw, instantaneous_cop, number, external_watts
 from .api import SmartThingsAuthError, SmartThingsClient, SmartThingsError
 from .const import DOMAIN, CONF_TOKEN, CONF_DEVICE_ID, CONF_POWER_SENSOR, DEFAULT_SCAN_INTERVAL
 
@@ -39,6 +39,7 @@ class SamsungEHSCoordinator(DataUpdateCoordinator[dict]):
         self.presentation_id = None
         self.diagnostic_entries = []
         self.snapshots = SnapshotHistory()
+        self.live_power = PowerHistory()
         self.performance = RollingPerformance()
         self.daily = DailyPerformance(hass.config.time_zone, self.power_sensor)
         self.daily_store = Store(hass, 1, f"{DOMAIN}_{entry.entry_id}_daily")
@@ -54,16 +55,29 @@ class SamsungEHSCoordinator(DataUpdateCoordinator[dict]):
         self.diagnostic_entries = self.diagnostic_entries[-100:]
         LOGGER.warning("%s: %s", category, message)
 
+    def capture_external_power(self, now):
+        state = self.hass.states.get(self.power_sensor)
+        watts = external_watts(state.state, state.attributes.get("unit_of_measurement")) if state else None
+        reported = getattr(state, "last_reported", None) or getattr(state, "last_updated", None)
+        try:
+            power_time = reported.timestamp() if reported.tzinfo is not None else None
+        except AttributeError:
+            power_time = None
+        if watts is None:
+            power_time = now.timestamp()
+        self.live_power.record(power_time, watts, now.timestamp())
+        return watts
+
     def refresh_live(self, data, now=None):
         """Refresh the live ratio without polling or changing seven-day accounting."""
         now = now or datetime.now(timezone.utc)
         metrics = decode(data, now)
         if self.power_sensor:
             state = self.hass.states.get(self.power_sensor)
-            watts = external_watts(state.state, state.attributes.get("unit_of_measurement")) if state else None
+            watts = self.capture_external_power(now)
             displayed_watts = external_watts(
                 state.state, state.attributes.get("unit_of_measurement"), clamp_negative=True) if state else None
-            fresh = True  # HA reports availability; a stable power value may be unchanged.
+            fresh = watts is not None
         else:
             report = field(data, "main", "powerConsumptionReport", "powerConsumption") or {}
             watts = electrical_watts(report.get("power"), self.presentation_id) if isinstance(report, dict) else None
@@ -73,11 +87,27 @@ class SamsungEHSCoordinator(DataUpdateCoordinator[dict]):
             try:
                 timestamp = datetime.fromisoformat(attribute["timestamp"].replace("Z", "+00:00"))
                 fresh = 0 <= (now - timestamp).total_seconds() <= 900
-            except (KeyError, TypeError, ValueError):
+                power_time = timestamp.timestamp()
+            except (KeyError, TypeError, ValueError, AttributeError):
                 fresh = False
+                power_time = None
+            self.live_power.record(power_time, watts, now.timestamp())
+        heat_time, outdoor_time = thermal_timestamps(data, now)
+        paired = self.live_power.closest(heat_time)
+        aligned = (heat_time is not None and outdoor_time is not None
+                   and abs(heat_time-outdoor_time) <= LIVE_COP_MAX_SKEW)
+        cop = instantaneous_cop(metrics.get("thermal_power"), paired[1]) if fresh and aligned and paired else None
+        data["_cop_match"] = {
+            "thermal_timestamp": datetime.fromtimestamp(heat_time, timezone.utc).isoformat() if heat_time is not None else None,
+            "outdoor_timestamp": datetime.fromtimestamp(outdoor_time, timezone.utc).isoformat() if outdoor_time is not None else None,
+            "power_timestamp": datetime.fromtimestamp(paired[0], timezone.utc).isoformat() if paired else None,
+            "power_watts": paired[1] if paired else None,
+            "time_difference_seconds": round(paired[0]-heat_time, 3) if paired else None,
+            "max_time_difference_seconds": LIVE_COP_MAX_SKEW,
+        }
         data.setdefault("_performance", {}).update(
             electrical_input_power=displayed_watts,
-            estimated_cop=instantaneous_cop(metrics.get("thermal_power"), watts) if fresh else None,
+            estimated_cop=cop,
             net_thermal_power=net_heat_kw(metrics),
         )
 
@@ -103,6 +133,8 @@ class SamsungEHSCoordinator(DataUpdateCoordinator[dict]):
         if self.data is not None:
             if self.last_update_success:
                 self.refresh_live(self.data)
+            else:
+                self.capture_external_power(datetime.now(timezone.utc))
             self.async_update_listeners()
 
     async def _async_update_data(self) -> dict:

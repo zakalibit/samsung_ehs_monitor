@@ -30,10 +30,10 @@ You can change the selected source later, or clear the field and save to return 
 
 ## Behaviour
 
-- W values are used directly; kW values are multiplied by 1000. Live COP = estimated thermal kW × 1000 / electrical W.
-- Shelly state changes refresh electrical input and live COP immediately, without additional SmartThings API calls. Samsung thermal data is still limited by its own reporting/polling frequency, so the ratio compares current electrical input with the latest valid heat estimate; it is not a synchronized heat-meter measurement.
+- W values are used directly; kW values are multiplied by 1000. Live COP = estimated thermal kW × 1000 / electrical W matched to the thermal snapshot timestamp.
+- Shelly state changes refresh electrical input and live COP immediately, without additional SmartThings API calls. Live COP uses the nearest historical power report to the indoor thermal snapshot, within 90 seconds. Indoor/outdoor packets must also be within 90 seconds of each other. The electrical input sensor continues to display the current reading.
 - Electrical input power displays 0 W for valid readings at or below zero, with COP unknown. Missing, unknown, unavailable, nonfinite or unsupported-unit readings remain unknown. Negative readings are still excluded from daily energy/COP accounting; the display clamp does not change those calculations.
-- When an external source is selected, Samsung raw power is never substituted automatically and Samsung power-report freshness is not required for live COP. Valid recent thermal packets are still required. A stable HA power state is accepted without an arbitrary age timeout; availability comes from its integration.
+- When an external source is selected, Samsung raw power is never substituted automatically and Samsung power-report freshness is not required for live COP. Valid recent thermal packets are still required. Power reports are timestamped using Home Assistant last_reported (or last_updated); rereading a state does not make an old report fresh. Without a close report, live COP is unknown.
 - Source entity and unit are exposed as attributes of electrical input power and live COP. The same source remains configured across restarts. If the sensor is renamed or removed, reselect it in Configure.
 - Samsung raw power, electrical energy and energy difference remain available as separate diagnostic measurements.
 - With no external sensor selected, the integration uses Samsung power: use device presentation metadata for EHS power scaling and require recent electricity-report timestamps for live COP.
@@ -54,7 +54,7 @@ For an automatically installed dashboard, enable **Create Samsung EHS dashboard*
 
 ## Verification
 
-58 automated tests pass, including dashboard registry resolution, renaming, missing/disabled sensors, path collisions, multiple heat pumps, unload/reload and opt-out behavior. Existing coverage includes: original decoder, seven-day accounting, external W/kW conversion, invalid/unavailable/zero values, Samsung-zero override, state-event refresh without changing seven-day accounting, fallback when no source is selected, options save/clear and self-reference/unit validation. Coordinator/options tests use lightweight HA stubs, not a live Home Assistant instance. Python/JSON syntax and dashboard YAML are checked. Live installation and Shelly verification remain required.
+71 automated tests pass, including dashboard registry resolution, renaming, missing/disabled sensors, path collisions, multiple heat pumps, unload/reload and opt-out behavior. Existing coverage includes: original decoder, seven-day accounting, external W/kW conversion, invalid/unavailable/zero values, Samsung-zero override, state-event refresh without changing seven-day accounting, fallback when no source is selected, options save/clear and self-reference/unit validation. Coordinator/options tests use lightweight HA stubs, not a live Home Assistant instance. Python/JSON syntax and dashboard YAML are checked. Live installation and Shelly verification remain required.
 
 ## References
 
@@ -89,4 +89,10 @@ All timestamped indoor/outdoor cycle records in each response are sorted and ded
 
 Daily energy/COP revises the most recent 30 minutes when delayed snapshots arrive. Heat is held between snapshot timestamps and paired with the external electrical power changes actually observed by this integration. Repeated API batches do not add energy twice. No electrical history is invented before setup/reload, and gaps longer than three minutes in observed updates remain excluded. Revisions can adjust recent daily totals, including across local midnight. Older totals are finalized and retained.
 
-Seven-day accounting uses all available thermal snapshots between successive Samsung electricity-counter timestamps. Repeated counter reports are ignored. The counter window must have complete thermal coverage; external power is still used only for daily and live COP. This improves energy accounting but does not synchronize live COP with a faster electrical meter or recover snapshots that Samsung no longer returns.
+Seven-day accounting uses all available thermal snapshots between successive Samsung electricity-counter timestamps. Repeated counter reports are ignored. The counter window must have complete thermal coverage; external power is still used only for daily and live COP. This improves energy accounting but cannot recover snapshots that Samsung no longer returns.
+
+## Live COP timestamp matching
+
+The integration retains 30 minutes of power reports in memory (up to 4096 reports), rather than only three readings, so fast electrical updates do not discard the history needed by delayed Samsung packets. It selects the report closest to the actual indoor packet used for heat, within 90 seconds, preferring the earlier report on a tie. It can use a later electrical report only within that tolerance. Invalid or zero reports are not skipped in favor of older positive ones. Missing matches leave COP unknown; no current-power fallback is used. External meter reports continue to be captured during Samsung API failures.
+
+The COP sensor exposes thermal_timestamp, outdoor_timestamp, power_timestamp, power_watts, time_difference_seconds (power minus thermal), and max_time_difference_seconds. These explain why its denominator can differ from the current electrical input power card. Samsung's own power reports use their API timestamps; external power uses the time Home Assistant received the report, which may differ from the physical measurement time. Live history clears on restart/reload. Daily and seven-day accounting remain separate from this live matching buffer.

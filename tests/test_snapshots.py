@@ -116,6 +116,7 @@ class SnapshotCoordinatorTests(unittest.IsolatedAsyncioTestCase):
                 return datetime.fromtimestamp(cls.value, timezone.utc)
 
             fromisoformat = staticmethod(datetime.fromisoformat)
+            fromtimestamp = staticmethod(datetime.fromtimestamp)
 
         coordinator, _ = external.ExternalPowerTests().make()
         coordinator.store = Mock()
