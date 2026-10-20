@@ -94,10 +94,15 @@ class SamsungEHSCoordinator(DataUpdateCoordinator[dict]):
             self.live_power.record(power_time, watts, now.timestamp())
         heat_time, outdoor_time = thermal_timestamps(data, now)
         paired = self.live_power.closest(heat_time)
+        matching_method = "closest" if paired else "unavailable"
+        if paired is None and heat_time is not None:
+            paired = self.live_power.latest()
+            matching_method = "latest_fallback" if paired else "unavailable"
         aligned = (heat_time is not None and outdoor_time is not None
                    and abs(heat_time-outdoor_time) <= LIVE_COP_MAX_SKEW)
         cop = instantaneous_cop(metrics.get("thermal_power"), paired[1]) if fresh and aligned and paired else None
         data["_cop_match"] = {
+            "power_matching_method": matching_method,
             "thermal_timestamp": datetime.fromtimestamp(heat_time, timezone.utc).isoformat() if heat_time is not None else None,
             "outdoor_timestamp": datetime.fromtimestamp(outdoor_time, timezone.utc).isoformat() if outdoor_time is not None else None,
             "power_timestamp": datetime.fromtimestamp(paired[0], timezone.utc).isoformat() if paired else None,

@@ -58,6 +58,13 @@ class PowerHistory:
         if len(self.samples) > 4096:
             self.samples = dict(sorted(self.samples.items())[-4096:])
 
+    def latest(self):
+        """Return the newest report, preserving invalid/zero readings."""
+        if not self.samples:
+            return None
+        when = max(self.samples)
+        return when, self.samples[when]
+
     def closest(self, timestamp):
         if not number(timestamp) or not self.samples:
             return None

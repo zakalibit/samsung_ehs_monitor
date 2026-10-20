@@ -62,11 +62,21 @@ class LiveCOPTests(unittest.TestCase):
         self.assertEqual(self.coordinator.snapshots.power[self.when], 100)
         self.assertEqual(match['thermal_timestamp'], match['power_timestamp'])
 
-    def test_no_match_after_restart_or_outside_tolerance(self):
+    def test_no_close_match_uses_latest_power_after_restart(self):
         self.coordinator.live_power = external.p.PowerHistory()
         self.refresh()
+        self.assertEqual(self.data['_performance']['estimated_cop'], 27.92)
+        self.assertEqual(self.data['_cop_match']['power_matching_method'], 'latest_fallback')
+        self.assertEqual(self.data['_cop_match']['power_watts'], 100)
+        self.assertEqual(self.data['_cop_match']['time_difference_seconds'], 120)
+
+    def test_zero_latest_fallback_keeps_cop_unknown(self):
+        self.coordinator.live_power = external.p.PowerHistory()
+        self.states['sensor.shelly_power'].state = '0'
+        self.refresh()
         self.assertIsNone(self.data['_performance']['estimated_cop'])
-        self.assertIsNone(self.data['_cop_match']['power_timestamp'])
+        self.assertEqual(self.data['_cop_match']['power_matching_method'], 'latest_fallback')
+        self.assertEqual(self.data['_cop_match']['power_watts'], 0)
 
     def test_newer_malformed_binary_uses_timestamp_of_valid_packet(self):
         cycles = self.data['components']['main']['samsungce.ehsCycleData']
