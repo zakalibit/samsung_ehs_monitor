@@ -12,7 +12,7 @@ Requires [HACS](https://www.hacs.dev/docs/use/) installed and configured in Home
 
 1. Click **Open in HACS** above, select your Home Assistant instance, and confirm adding the repository.
 2. Download **Samsung EHS Monitor** in HACS, then restart Home Assistant.
-3. Open **Settings → Devices & services → Add integration**, search for **Samsung EHS Monitor**, enter your SmartThings access token, and select your heat pump. If already configured, keep your existing entry.
+3. Add **Samsung EHS Monitor**, choose **Sign in with Samsung (OAuth)**, and complete Samsung authorization using your own OAuth application credentials (see [OAuth setup](#oauth-setup)). Then select your heat pump. A manual access token is also supported. If already configured, keep your existing entry.
 4. Open the integration's **Configure** options, select your external power sensor if desired, and enable **Create Samsung EHS dashboard**.
 
 If the link does not work, open **HACS → ⋮ → Custom repositories**, add `https://github.com/zakalibit/samsung_ehs_monitor` with type **Integration**, then download it from HACS.
@@ -27,6 +27,23 @@ HACS also handles future downloads and updates. Restart Home Assistant after ins
 Select a power sensor in **W** or **kW**, not a Wh/kWh energy sensor. The selector lists sensors with device class power. Saving options reloads the integration automatically. Existing entity IDs and dashboard references are retained.
 
 You can change the selected source later, or clear the field and save to return to Samsung API power. The selected entity must already exist and declare W/kW units; unavailable numeric states are allowed after selection. Sensors from Samsung EHS Monitor itself are rejected to prevent direct feedback loops.
+
+## Authentication
+
+Samsung EHS Monitor has its own OAuth authorization flow, access/refresh tokens and Home Assistant OAuth session. The built-in SmartThings integration is not required. Home Assistant validates the authorization callback/state, stores the tokens, refreshes expired access tokens, and persists rotated refresh tokens. Token rotation does not reload this integration. A revoked grant requires a fresh Samsung sign-in; transient refresh failures are retried through normal polling.
+
+### OAuth setup
+
+1. Register an **OAuth-In App** with SmartThings and obtain its **Client ID** and **Client Secret**. SmartThings documents this under [OAuth-based API authentication](https://developer.smartthings.com/docs/getting-started/quickstart). The app needs the read-only `r:devices:*` scope; no device command permissions are requested.
+2. Register the Home Assistant callback URL in your OAuth app. With **My Home Assistant** enabled, use `https://my.home-assistant.io/redirect/oauth`. Otherwise use the exact callback Home Assistant uses for your instance, normally `https://YOUR-HA-URL/auth/external/callback`. The registered URI must match exactly.
+3. In **Settings → Devices & services → ⋮ → Application credentials**, add credentials for **Samsung EHS Monitor**, entering your Client ID and Client Secret. These are OAuth application credentials, not a personal access token. Never commit the client secret to GitHub.
+4. Add Samsung EHS Monitor, choose **Sign in with Samsung (OAuth)**, select your application credentials if prompted, and approve access in Samsung's browser page. Then select the heat pump.
+
+This implementation uses SmartThings' documented production endpoints `https://api.smartthings.com/oauth/authorize` and `https://api.smartthings.com/oauth/token`, with HTTP Basic client authentication for authorization-code exchange and refresh. SmartThings also documents a newer API Access Apps experience as a preview; credentials for a different endpoint family may require corresponding changes. See [SmartThings authentication](https://developer.smartthings.com/docs/getting-started/quickstart) and [Home Assistant OAuth/application credentials](https://developers.home-assistant.io/docs/core/platform/application_credentials/).
+
+Existing manual-token users can choose **Samsung EHS Monitor → ⋮ → Reconfigure → Sign in with Samsung (OAuth)** and authorize access to the same heat pump. This preserves device/entity identity, options and stored energy history. Do not delete the integration to change authentication. Manual tokens remain available through **Enter a manual access token**.
+
+The code contains no bundled Client ID/Secret. Registering a SmartThings OAuth app and configuring its credentials is required before the independent sign-in flow can be used. The OAuth transport and flow have automated tests; a live Samsung authorization/refresh test is still required with real application credentials.
 
 ## Behaviour
 
@@ -54,7 +71,7 @@ For an automatically installed dashboard, enable **Create Samsung EHS dashboard*
 
 ## Verification
 
-72 automated tests pass, including dashboard registry resolution, renaming, missing/disabled sensors, path collisions, multiple heat pumps, unload/reload and opt-out behavior. Existing coverage includes: original decoder, seven-day accounting, external W/kW conversion, invalid/unavailable/zero values, Samsung-zero override, state-event refresh without changing seven-day accounting, fallback when no source is selected, options save/clear and self-reference/unit validation. Coordinator/options tests use lightweight HA stubs, not a live Home Assistant instance. Python/JSON syntax and dashboard YAML are checked. Live installation and Shelly verification remain required.
+83 automated tests pass, including dashboard registry resolution, renaming, missing/disabled sensors, path collisions, multiple heat pumps, unload/reload and opt-out behavior. Existing coverage includes: original decoder, seven-day accounting, external W/kW conversion, invalid/unavailable/zero values, Samsung-zero override, state-event refresh without changing seven-day accounting, fallback when no source is selected, options save/clear and self-reference/unit validation. Coordinator/options tests use lightweight HA stubs, not a live Home Assistant instance. Python/JSON syntax and dashboard YAML are checked. Live installation and Shelly verification remain required.
 
 ## References
 

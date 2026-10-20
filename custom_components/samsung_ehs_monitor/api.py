@@ -16,15 +16,19 @@ class SmartThingsAuthError(SmartThingsError):
 
 
 class SmartThingsClient:
-    def __init__(self, session, token: str):
+    def __init__(self, session, token: str | None = None, *, token_provider=None):
         self._session = session
         self._token = token
+        self._token_provider = token_provider
 
     async def _get(self, path: str) -> dict:
         try:
+            token = await self._token_provider() if self._token_provider else self._token
+            if not token:
+                raise SmartThingsAuthError("SmartThings authentication is not configured")
             async with self._session.get(
                 f"{API_BASE}{path}",
-                headers={"Authorization": f"Bearer {self._token}", "Accept": "application/json"},
+                headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
                 timeout=ClientTimeout(total=20),
             ) as response:
                 response.raise_for_status()

@@ -3,9 +3,10 @@
     "step": {
       "user": {
         "title": "Connect to SmartThings",
-        "description": "Enter a SmartThings personal access token with permission to read devices. The integration only sends read-only API requests.",
-        "data": {
-          "token": "SmartThings access token"
+        "description": "Sign in directly to Samsung with this integration’s own OAuth application, or enter a manual access token. OAuth automatically refreshes your tokens.",
+        "menu_options": {
+          "oauth": "Sign in with Samsung (OAuth)",
+          "token": "Enter a manual access token"
         }
       },
       "device": {
@@ -14,16 +15,28 @@
         "data": {
           "device_id": "Device to monitor"
         }
+      },
+      "token": {
+        "title": "Use a manual SmartThings token",
+        "description": "Enter a SmartThings personal access token with permission to read devices. The integration only sends read-only API requests.",
+        "data": {
+          "token": "SmartThings access token"
+        }
       }
     },
     "error": {
-      "invalid_auth": "Invalid token or insufficient SmartThings permissions.",
+      "invalid_auth": "SmartThings access denied. Sign in again or check the manual token.",
       "cannot_connect": "Unable to reach SmartThings. Try again later.",
-      "no_devices": "No compatible Samsung EHS devices found with this token.",
+      "no_devices": "No compatible EHS device is accessible through this connection. When reconfiguring, the existing heat pump must be accessible.",
       "invalid_device": "Please select a listed device."
     },
     "abort": {
-      "already_configured": "This device is already configured."
+      "already_configured": "This device is already configured.",
+      "missing_refresh_token": "SmartThings did not return a refresh token. Check the OAuth app settings and authorize again.",
+      "missing_scopes": "The OAuth authorization must include read access to devices.",
+      "no_devices": "No compatible EHS device is accessible through this connection. When reconfiguring, the existing heat pump must be accessible.",
+      "invalid_auth": "SmartThings access denied. Sign in again or check the manual token.",
+      "cannot_connect": "Unable to reach SmartThings. Try again later."
     }
   },
   "options": {

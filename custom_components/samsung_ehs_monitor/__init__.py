@@ -9,12 +9,13 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
+from .auth import async_create_client
 from .daily import DailyPerformance
 from .snapshots import SnapshotHistory
 from .frontend import RESOURCE_PATH, async_register_resources
@@ -36,6 +37,7 @@ class SamsungEHSCoordinator(DataUpdateCoordinator[dict]):
         )
         self.device_id = entry.data[CONF_DEVICE_ID]
         self.power_sensor = entry.options.get(CONF_POWER_SENSOR)
+        self.configured_options = dict(entry.options)
         self.presentation_id = None
         self.diagnostic_entries = []
         self.snapshots = SnapshotHistory()
@@ -44,7 +46,8 @@ class SamsungEHSCoordinator(DataUpdateCoordinator[dict]):
         self.daily = DailyPerformance(hass.config.time_zone, self.power_sensor)
         self.daily_store = Store(hass, 1, f"{DOMAIN}_{entry.entry_id}_daily")
         self.store = Store(hass, 1, f"{DOMAIN}_{entry.entry_id}_performance")
-        self.client = SmartThingsClient(async_get_clientsession(hass), entry.data[CONF_TOKEN])
+        token = entry.data.get(CONF_TOKEN)
+        self.client = SmartThingsClient(async_get_clientsession(hass), token if isinstance(token, str) else None)
 
     @callback
     def record_failure(self, category, message):
@@ -197,6 +200,12 @@ async def async_setup(hass: HomeAssistant, config) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = SamsungEHSCoordinator(hass, entry)
+    try:
+        coordinator.client = await async_create_client(hass, entry)
+    except SmartThingsAuthError as exc:
+        raise ConfigEntryAuthFailed(str(exc)) from exc
+    except SmartThingsError as exc:
+        raise ConfigEntryNotReady(str(exc)) from exc
     daily_saved = await coordinator.daily_store.async_load()
     coordinator.daily = DailyPerformance(hass.config.time_zone, coordinator.power_sensor, daily_saved)
     saved = await coordinator.store.async_load()
@@ -224,7 +233,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    await hass.config_entries.async_reload(entry.entry_id)
+    # OAuth token rotation updates entry.data; it must not reload the integration.
+    coordinator = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+    if coordinator is not None and dict(entry.options) != coordinator.configured_options:
+        await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
