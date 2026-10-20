@@ -133,7 +133,7 @@ async def async_setup(hass: HomeAssistant, config) -> bool:
     url = "/samsung_ehs_monitor/daily-cop-card.js"
     await hass.http.async_register_static_paths([
         StaticPathConfig(url, str(Path(__file__).parent / "frontend" / "daily-cop-card.js"), False)])
-    add_extra_js_url(hass, url + "?v=0.8.0")
+    add_extra_js_url(hass, url + "?v=0.8.1")
     return True
 
 

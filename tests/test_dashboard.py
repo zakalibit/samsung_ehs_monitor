@@ -74,6 +74,21 @@ class DashboardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await dashboard.async_load(False))['views'][0]['cards'],
                          [{'type': 'markdown', 'content': 'Help'}])
 
+    def test_combined_temperatures_resolve_both_registered_ids(self):
+        template = {'views': [{'cards': [{'type': 'entities', 'entities': [{
+            'type': 'custom:samsung-ehs-flow-return-row',
+            'entity': 'water_flow_temperature', 'return_entity': 'water_return_temperature',
+        }]}]}]}
+        sensors = {'water_flow_temperature': 'sensor.renamed_flow',
+                   'water_return_temperature': 'sensor.kitchen_return'}
+        config = self.scope['build_dashboard'](template, sensors, 'EHS')
+        row = config['views'][0]['cards'][0]['entities'][0]
+        self.assertEqual(row['entity'], 'sensor.renamed_flow')
+        self.assertEqual(row['return_entity'], 'sensor.kitchen_return')
+        del sensors['water_return_temperature']
+        config = self.scope['build_dashboard'](template, sensors, 'EHS')
+        self.assertEqual(config['views'][0]['cards'], [])
+
     async def test_setup_unload_reload_and_opt_out(self):
         setup = self.scope['async_setup_dashboard']
         await setup(self.hass, self.entry)

@@ -22,9 +22,10 @@ def build_dashboard(template, sensors, title):
             return [resolved for item in value if (resolved := resolve(item)) is not None]
         if not isinstance(value, dict):
             return value
-        if "entity" in value and value["entity"] not in sensors:
+        entity_fields = {"entity", "return_entity"}
+        if any(value[key] not in sensors for key in entity_fields if key in value):
             return None
-        result = {key: (sensors[item] if key == "entity" else resolve(item))
+        result = {key: (sensors[item] if key in entity_fields else resolve(item))
                   for key, item in value.items()}
         if "entities" in result and not result["entities"]:
             return None

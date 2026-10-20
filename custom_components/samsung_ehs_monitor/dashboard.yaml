@@ -9,12 +9,10 @@ views:
         title: At a glance
         show_header_toggle: false
         entities:
-          - entity: water_flow_temperature
-            name: Flow / outlet
-            icon: mdi:thermometer-chevron-up
-          - entity: water_return_temperature
-            name: Return / inlet
-            icon: mdi:thermometer-chevron-down
+          - type: custom:samsung-ehs-flow-return-row
+            entity: water_flow_temperature
+            return_entity: water_return_temperature
+            name: Flow/Return
           - entity: outdoor_temperature
             name: Outdoors
             icon: mdi:thermometer
@@ -27,6 +25,10 @@ views:
           - entity: compressor_frequency
             name: Compressor
             icon: mdi:sine-wave
+          - entity: energy
+            name: Electrical energy (reported counter)
+          - entity: deltaEnergy
+            name: Electrical energy difference (reported)
       - type: entities
         title: Estimated performance
         show_header_toggle: false
@@ -65,8 +67,6 @@ views:
             name: Electricity consumed
           - entity: estimated_cop_7d
             name: Estimated 7-day COP
-          - entity: performance_7d_coverage
-            name: Valid data coverage
       - type: entities
         title: Compressor and circulation
         show_header_toggle: false
@@ -94,14 +94,6 @@ views:
         entities:
           - entity: thermal_power
             name: Estimated thermal output
-      - type: entities
-        title: Reported electrical energy
-        show_header_toggle: false
-        entities:
-          - entity: energy
-            name: Electrical energy (reported counter)
-          - entity: deltaEnergy
-            name: Electrical energy difference (reported)
   - title: Trends
     path: trends
     icon: mdi:chart-line

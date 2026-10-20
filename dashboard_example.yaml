@@ -12,12 +12,10 @@ views:
         title: At a glance
         show_header_toggle: false
         entities:
-          - entity: sensor.samsung_ehs_monitor_water_flow_temperature
-            name: Flow / outlet
-            icon: mdi:thermometer-chevron-up
-          - entity: sensor.samsung_ehs_monitor_water_return_temperature
-            name: Return / inlet
-            icon: mdi:thermometer-chevron-down
+          - type: custom:samsung-ehs-flow-return-row
+            entity: sensor.samsung_ehs_monitor_water_flow_temperature
+            return_entity: sensor.samsung_ehs_monitor_water_return_temperature
+            name: Flow/Return
           - entity: sensor.samsung_ehs_monitor_outdoor_temperature
             name: Outdoors
             icon: mdi:thermometer
@@ -30,6 +28,10 @@ views:
           - entity: sensor.samsung_ehs_monitor_compressor_frequency
             name: Compressor
             icon: mdi:sine-wave
+          - entity: sensor.samsung_ehs_monitor_electrical_energy
+            name: Electrical energy (reported counter)
+          - entity: sensor.samsung_ehs_monitor_electrical_energy_difference
+            name: Electrical energy difference (reported)
       - type: entities
         title: Estimated performance
         show_header_toggle: false
@@ -68,8 +70,6 @@ views:
             name: Electricity consumed
           - entity: sensor.samsung_ehs_monitor_estimated_cop_7d
             name: Estimated 7-day COP
-          - entity: sensor.samsung_ehs_monitor_performance_7d_coverage
-            name: Valid data coverage
       - type: entities
         title: Compressor and circulation
         show_header_toggle: false
@@ -97,14 +97,6 @@ views:
         entities:
           - entity: sensor.samsung_ehs_monitor_estimated_thermal_output
             name: Estimated thermal output
-      - type: entities
-        title: Reported electrical energy
-        show_header_toggle: false
-        entities:
-          - entity: sensor.samsung_ehs_monitor_electrical_energy
-            name: Electrical energy (reported counter)
-          - entity: sensor.samsung_ehs_monitor_electrical_energy_difference
-            name: Electrical energy difference (reported)
   - title: Trends
     path: trends
     icon: mdi:chart-line

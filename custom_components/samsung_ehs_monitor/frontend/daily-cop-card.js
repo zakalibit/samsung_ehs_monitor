@@ -99,3 +99,39 @@ class SamsungEHSDailyCOPCard extends HTMLElement {
 if (!customElements.get('samsung-ehs-daily-cop-card')) customElements.define('samsung-ehs-daily-cop-card', SamsungEHSDailyCOPCard);
 window.customCards = window.customCards || [];
 window.customCards.push({type:'samsung-ehs-daily-cop-card',name:'Samsung EHS Daily COP',description:'Daily ratios of paired thermal and electrical energy, with coverage.'});
+
+class SamsungEHSFlowReturnRow extends HTMLElement {
+  setConfig(config) {
+    if (!config.entity || !config.return_entity) throw new Error('Specify flow and return entities');
+    this.config = config;
+    if (!this.shadowRoot) this.attachShadow({mode: 'open'});
+    this.shadowRoot.innerHTML = `
+      <style>
+        :host {display:flex;align-items:center;min-height:40px;color:var(--primary-text-color);}
+        ha-icon {margin-right:16px;color:var(--state-icon-color);flex:none;}
+        .name {flex:1;} .values {margin-left:16px;white-space:nowrap;font-variant-numeric:tabular-nums;}
+      </style>
+      <ha-icon icon="mdi:thermometer-water"></ha-icon>
+      <span class="name"></span><span class="values"></span>`;
+    this.shadowRoot.querySelector('.name').textContent = config.name || 'Flow/Return';
+  }
+
+  set hass(hass) {
+    if (!this.config) return;
+    const format = entityId => {
+      const state = hass.states[entityId];
+      if (!state || ['unknown', 'unavailable', ''].includes(state.state)) return '—';
+      const value = Number(state.state);
+      if (!Number.isFinite(value)) return '—';
+      const temperature = new Intl.NumberFormat(hass.locale?.language || hass.language, {
+        maximumFractionDigits: 1,
+      }).format(value);
+      return `${temperature}${state.attributes.unit_of_measurement || '°C'}`;
+    };
+    this.shadowRoot.querySelector('.values').textContent =
+      `${format(this.config.entity)} / ${format(this.config.return_entity)}`;
+  }
+}
+if (!customElements.get('samsung-ehs-flow-return-row')) {
+  customElements.define('samsung-ehs-flow-return-row', SamsungEHSFlowReturnRow);
+}
