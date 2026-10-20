@@ -42,6 +42,28 @@ def parse_payload(record, length: int, now=None):
         return None
 
 
+def cycle_errors(data: dict, now=None) -> list[str]:
+    """Explain rejected packets without exposing their contents or device IDs."""
+    if field(data, "main", "samsungce.deviceIdentification", "binaryId") != BINARY_ID:
+        return ["Unsupported or missing binary ID; cycle decoding skipped"]
+    errors = []
+    for kind, length in (("indoor", 31), ("outdoor", 28)):
+        record = latest(data, kind)
+        if record is None:
+            errors.append(f"{kind}: missing cycle packet")
+            continue
+        try:
+            payload = bytes.fromhex(record["data"])
+        except (KeyError, TypeError, ValueError):
+            errors.append(f"{kind}: invalid or missing hexadecimal payload")
+            continue
+        if len(payload) != length:
+            errors.append(f"{kind}: incorrect payload length (expected {length} bytes)")
+        elif parse_payload(record, length, now) is None:
+            errors.append(f"{kind}: invalid timestamp, future timestamp, or packet older than 15 minutes")
+    return errors
+
+
 def decode(data: dict, now=None) -> dict:
     """Return confirmed TP1X readings or None. Never treat old data as live."""
     binary_id = field(data, "main", "samsungce.deviceIdentification", "binaryId")

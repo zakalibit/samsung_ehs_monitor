@@ -89,6 +89,14 @@ class DashboardTests(unittest.IsolatedAsyncioTestCase):
         config = self.scope['build_dashboard'](template, sensors, 'EHS')
         self.assertEqual(config['views'][0]['cards'], [])
 
+    def test_log_template_uses_registered_sensor_after_rename(self):
+        template = {'views': [{'cards': [{'type': 'markdown',
+                    'content': "{{ state_attr('__FAILURE_LOG_ENTITY__', 'entries') }}"}]}]}
+        config = self.scope['build_dashboard'](template, {'failure_log': 'sensor.renamed_log'}, 'EHS')
+        content = config['views'][0]['cards'][0]['content']
+        self.assertIn('sensor.renamed_log', content)
+        self.assertNotIn('__FAILURE_LOG_ENTITY__', content)
+
     async def test_setup_unload_reload_and_opt_out(self):
         setup = self.scope['async_setup_dashboard']
         await setup(self.hass, self.entry)

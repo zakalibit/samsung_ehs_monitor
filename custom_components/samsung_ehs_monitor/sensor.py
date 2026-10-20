@@ -90,6 +90,25 @@ class SamsungEHSSensor(CoordinatorEntity, SensorEntity):
             return None
 
 
+class SamsungEHSLogSensor(SamsungEHSSensor):
+    """Keep failures visible even when the polling coordinator is unavailable."""
+
+    _unrecorded_attributes = frozenset({"entries"})
+
+    @property
+    def available(self):
+        return True
+
+    @property
+    def native_value(self):
+        return len(self.coordinator.diagnostic_entries)
+
+    @property
+    def extra_state_attributes(self):
+        return {"entries": list(reversed(self.coordinator.diagnostic_entries)),
+                "capacity": 100, "retention": "Since integration setup or reload"}
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities):
     coordinator = hass.data[DOMAIN][entry.entry_id]
     definitions = [
@@ -100,7 +119,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         ("cooling_setpoint", "Cooling setpoint", "INDOOR1", "thermostatCoolingSetpoint", "coolingSetpoint", "°C"),
         ("outing_mode", "Outing mode", "main", "custom.outingMode", "outingMode", None),
     ]
-    entities = []
+    entities = [SamsungEHSLogSensor(
+        coordinator, "failure_log", "Failure log", lambda d: None, diagnostic=True)]
     for key, name, component, capability, attr, unit in definitions:
         entities.append(SamsungEHSSensor(
             coordinator, key, name,

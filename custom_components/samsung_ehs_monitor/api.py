@@ -33,7 +33,9 @@ class SmartThingsClient:
             if exc.status in (401, 403):
                 raise SmartThingsAuthError("SmartThings access denied") from exc
             raise SmartThingsError(f"SmartThings HTTP {exc.status}") from exc
-        except (ClientError, asyncio.TimeoutError, ValueError) as exc:
+        except ValueError as exc:
+            raise SmartThingsError("SmartThings returned invalid JSON") from exc
+        except (ClientError, asyncio.TimeoutError) as exc:
             raise SmartThingsError("Unable to connect to SmartThings") from exc
 
     async def devices(self) -> list[dict]:
@@ -60,7 +62,10 @@ class SmartThingsClient:
         return await self._get(f"/devices/{device_id}")
 
     async def status(self, device_id: str) -> dict:
-        return await self._get(f"/devices/{device_id}/status")
+        data = await self._get(f"/devices/{device_id}/status")
+        if not isinstance(data, dict) or not isinstance(data.get("components"), dict):
+            raise SmartThingsError("SmartThings returned an invalid status structure")
+        return data
 
 
 def is_ehs_status(data: dict) -> bool:

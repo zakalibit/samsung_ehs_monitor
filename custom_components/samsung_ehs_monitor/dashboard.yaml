@@ -135,3 +135,25 @@ views:
         entities:
           - entity: discharge_temperature
             name: Discharge gas
+  - title: Logs
+    path: logs
+    icon: mdi:alert-circle-outline
+    cards:
+      - type: markdown
+        title: API and parsing failures
+        content: |
+          {% set log = '__FAILURE_LOG_ENTITY__' %}
+          {% set entries = state_attr(log, 'entries') or [] %}
+          {% if states(log) in ['unknown', 'unavailable'] %}
+          Log sensor unavailable. Check that the integration is loaded and the failure log sensor is enabled.
+          {% elif not entries %}
+          No failures recorded since the integration was loaded.
+          {% else %}
+          | Time (UTC) | Source | Failure |
+          | --- | --- | --- |
+          {% for entry in entries %}
+          | {{ entry.timestamp }} | {{ entry.category }} | {{ entry.message }} |
+          {% endfor %}
+          {% endif %}
+
+          Latest 100 failures. Cleared on restart or integration reload.

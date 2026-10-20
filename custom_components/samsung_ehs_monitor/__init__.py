@@ -18,7 +18,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from .daily import DailyPerformance
 from .frontend import RESOURCE_PATH, async_register_resources
 from .dashboard import async_setup_dashboard
-from .decoder import decode, field, latest
+from .decoder import decode, field, latest, cycle_errors
 from .performance import RollingPerformance, electrical_watts, net_heat_kw, instantaneous_cop, number, external_watts
 from .api import SmartThingsAuthError, SmartThingsClient, SmartThingsError
 from .const import DOMAIN, CONF_TOKEN, CONF_DEVICE_ID, CONF_POWER_SENSOR, DEFAULT_SCAN_INTERVAL
@@ -36,11 +36,21 @@ class SamsungEHSCoordinator(DataUpdateCoordinator[dict]):
         self.device_id = entry.data[CONF_DEVICE_ID]
         self.power_sensor = entry.options.get(CONF_POWER_SENSOR)
         self.presentation_id = None
+        self.diagnostic_entries = []
         self.performance = RollingPerformance()
         self.daily = DailyPerformance(hass.config.time_zone, self.power_sensor)
         self.daily_store = Store(hass, 1, f"{DOMAIN}_{entry.entry_id}_daily")
         self.store = Store(hass, 1, f"{DOMAIN}_{entry.entry_id}_performance")
         self.client = SmartThingsClient(async_get_clientsession(hass), entry.data[CONF_TOKEN])
+
+    @callback
+    def record_failure(self, category, message):
+        self.diagnostic_entries.append({
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "category": category, "message": message,
+        })
+        self.diagnostic_entries = self.diagnostic_entries[-100:]
+        LOGGER.warning("%s: %s", category, message)
 
     def refresh_live(self, data, now=None):
         """Refresh the live ratio without polling or changing seven-day accounting."""
@@ -102,6 +112,8 @@ class SamsungEHSCoordinator(DataUpdateCoordinator[dict]):
         try:
             data = await self.client.status(self.device_id)
             now = datetime.now(timezone.utc)
+            for message in cycle_errors(data, now):
+                self.record_failure("Parsing", message)
             metrics = decode(data, now)
             report = field(data, "main", "powerConsumptionReport", "powerConsumption") or {}
             if not isinstance(report, dict):
@@ -123,9 +135,14 @@ class SamsungEHSCoordinator(DataUpdateCoordinator[dict]):
             self.store.async_delay_save(self.performance.saved, 30)
             return data
         except SmartThingsAuthError as exc:
+            self.record_failure("API status", str(exc))
             raise ConfigEntryAuthFailed("SmartThings token no longer authorised") from exc
         except SmartThingsError as exc:
+            self.record_failure("API status", str(exc))
             raise UpdateFailed("SmartThings status retrieval failed") from exc
+        except (TypeError, ValueError, AttributeError, KeyError, IndexError) as exc:
+            self.record_failure("Parsing", f"Unexpected status structure ({type(exc).__name__})")
+            raise UpdateFailed("Unable to parse SmartThings status") from exc
 
 
 async def async_setup(hass: HomeAssistant, config) -> bool:
@@ -147,8 +164,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             details = await coordinator.client.device(coordinator.device_id)
             coordinator.presentation_id = details.get("presentationId")
         except SmartThingsAuthError as exc:
+            coordinator.record_failure("API device metadata", str(exc))
             raise ConfigEntryAuthFailed("SmartThings token no longer authorised") from exc
-        except SmartThingsError:
+        except SmartThingsError as exc:
+            coordinator.record_failure("API device metadata", str(exc))
             LOGGER.warning("Device metadata unavailable; electrical input power and live COP remain unknown until reload")
     await coordinator.async_config_entry_first_refresh()
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator

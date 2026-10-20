@@ -18,6 +18,8 @@ LOGGER = logging.getLogger(__name__)
 def build_dashboard(template, sensors, title):
     """Resolve template keys, omitting missing/disabled rows and empty cards."""
     def resolve(value):
+        if isinstance(value, str) and "__FAILURE_LOG_ENTITY__" in value:
+            return value.replace("__FAILURE_LOG_ENTITY__", sensors.get("failure_log", "sensor.samsung_ehs_log_missing"))
         if isinstance(value, list):
             return [resolved for item in value if (resolved := resolve(item)) is not None]
         if not isinstance(value, dict):

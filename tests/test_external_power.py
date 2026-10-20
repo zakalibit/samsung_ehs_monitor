@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 import importlib.util
 from pathlib import Path
 from types import SimpleNamespace as NS
+from unittest.mock import Mock
 import unittest
 
 BASE = Path(__file__).resolve().parents[1] / "custom_components/samsung_ehs_monitor"
@@ -45,7 +46,7 @@ def production_class(filename, name, scope):
 
 scope = dict(DataUpdateCoordinator=CoordinatorStub, callback=lambda f: f,
              datetime=datetime, timedelta=timedelta, timezone=timezone,
-             HomeAssistant=object, ConfigEntry=object, LOGGER=None,
+             HomeAssistant=object, ConfigEntry=object, LOGGER=Mock(),
              DEFAULT_SCAN_INTERVAL=300, CONF_DEVICE_ID="device_id",
              CONF_TOKEN="token", CONF_POWER_SENSOR="power_sensor", DOMAIN="samsung_ehs_monitor",
              RollingPerformance=p.RollingPerformance, DailyPerformance=daily.DailyPerformance, latest=d.latest,
