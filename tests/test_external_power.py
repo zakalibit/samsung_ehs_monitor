@@ -47,8 +47,9 @@ def production_class(filename, name, scope):
 
 snapshot_scope = dict(deepcopy=deepcopy, datetime=datetime, timezone=timezone,
                       BINARY_ID=d.BINARY_ID, MAX_AGE_SECONDS=d.MAX_AGE_SECONDS,
-                      WINDOW=1800, decode=d.decode, field=d.field, record_time=d.record_time,
-                      net_heat_kw=p.net_heat_kw)
+                      WINDOW=1800, field=d.field, record_time=d.record_time,
+                      net_heat_kw=p.net_heat_kw, number=p.number, decode_packet=d.decode_packet,
+                      combine_samples=d.combine_samples, cycle_failures=d.cycle_failures)
 Snapshots = production_class("snapshots.py", "SnapshotHistory", snapshot_scope)
 
 
@@ -60,12 +61,10 @@ scope = dict(DataUpdateCoordinator=CoordinatorStub, callback=lambda f: f,
              SnapshotHistory=Snapshots, RollingPerformance=p.RollingPerformance, DailyPerformance=daily.DailyPerformance, latest=d.latest,
              Store=lambda *a: None, SmartThingsClient=lambda *a: None,
              async_get_clientsession=lambda h: None,
-             decode=lambda data, now: data["metrics"], field=d.field,
+             field=d.field,
              electrical_watts=p.electrical_watts, external_watts=p.external_watts,
-             net_heat_kw=p.net_heat_kw, instantaneous_cop=p.instantaneous_cop,
-             PowerHistory=p.PowerHistory, LIVE_COP_MAX_SKEW=p.LIVE_COP_MAX_SKEW,
-             thermal_timestamps=lambda data, now: (now.timestamp(), now.timestamp())
-             if 'metrics' in data else d.thermal_timestamps(data, now))
+             net_heat_kw=p.net_heat_kw, instantaneous_cop=p.instantaneous_cop, number=p.number,
+             PowerHistory=p.PowerHistory, LIVE_COP_MAX_SKEW=p.LIVE_COP_MAX_SKEW)
 Coordinator = production_class("__init__.py", "SamsungEHSCoordinator", scope)
 
 
@@ -87,6 +86,7 @@ class ExternalPowerTests(unittest.TestCase):
                    options={"power_sensor": "sensor.shelly_power"} if selected else {})
         c = Coordinator(hass, entry)
         c.presentation_id = "DA-AC-EHS-01001"
+        c.snapshots.live = lambda when: (c.data.get("metrics", {}), (when, when))
         c.data = {"metrics": {"thermal_power": 4.8}, "components": {"main": {
             "powerConsumptionReport": {"powerConsumption": {
                 "value": {"power": 0}, "timestamp": "2026-10-20T10:00:00Z"}}}}}

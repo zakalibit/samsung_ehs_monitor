@@ -1,7 +1,7 @@
 """Failure logging remains bounded and explains rejected cycle packets."""
 from datetime import datetime, timezone
 from types import SimpleNamespace as NS
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock, patch
 import unittest
 
 import test_external_power as external
@@ -19,6 +19,28 @@ class DiagnosticsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(coordinator.diagnostic_entries), 100)
         self.assertEqual(coordinator.diagnostic_entries[0]['message'], 'SmartThings HTTP 5')
         self.assertIn('+00:00', coordinator.diagnostic_entries[-1]['timestamp'])
+
+    def test_repeated_failures_keep_first_last_count_and_warn_only_once(self):
+        coordinator = self.coordinator()
+        class Clock:
+            value = datetime(2026, 10, 20, 12, tzinfo=timezone.utc)
+            @classmethod
+            def now(cls, zone):
+                return cls.value
+        logger = Mock()
+        with patch.dict(external.scope, datetime=Clock, LOGGER=logger):
+            coordinator.record_failure('Parsing', 'first details', 'same-packet')
+            first_seen = coordinator.diagnostic_entries[0]['first_seen']
+            Clock.value = datetime(2026, 10, 20, 12, 5, tzinfo=timezone.utc)
+            coordinator.record_failure('Parsing', 'updated clock details', 'same-packet')
+            coordinator.record_failure('Parsing', 'updated clock details', 'same-packet')
+        self.assertEqual(len(coordinator.diagnostic_entries), 1)
+        row = coordinator.diagnostic_entries[0]
+        self.assertEqual(row['count'], 3)
+        self.assertEqual(row['first_seen'], first_seen)
+        self.assertEqual(row['last_seen'], Clock.value.isoformat())
+        self.assertEqual(row['message'], 'updated clock details')
+        logger.warning.assert_called_once()
 
     async def test_request_failures_are_logged_before_update_fails(self):
         class APIError(Exception):

@@ -20,7 +20,7 @@ from .daily import DailyPerformance
 from .snapshots import SnapshotHistory
 from .frontend import RESOURCE_PATH, async_register_resources
 from .dashboard import async_setup_dashboard
-from .decoder import decode, field, latest, cycle_errors, thermal_timestamps
+from .decoder import field
 from .performance import PowerHistory, LIVE_COP_MAX_SKEW, RollingPerformance, electrical_watts, net_heat_kw, instantaneous_cop, number, external_watts
 from .api import SmartThingsAuthError, SmartThingsClient, SmartThingsError
 from .const import DOMAIN, CONF_TOKEN, CONF_DEVICE_ID, CONF_POWER_SENSOR, DEFAULT_SCAN_INTERVAL
@@ -49,11 +49,22 @@ class SamsungEHSCoordinator(DataUpdateCoordinator[dict]):
         token = entry.data.get(CONF_TOKEN)
         self.client = SmartThingsClient(async_get_clientsession(hass), token if isinstance(token, str) else None)
 
+    def saved_daily(self):
+        """Save totals, interval ledger, and replay context in one atomic record."""
+        return {**self.daily.saved(), "snapshot_history": self.snapshots.saved()}
+
     @callback
-    def record_failure(self, category, message):
+    def record_failure(self, category, message, key=None):
+        now = datetime.now(timezone.utc).isoformat()
+        key = key or message
+        for index, entry in enumerate(self.diagnostic_entries):
+            if entry["category"] == category and entry["key"] == key:
+                entry.update(message=message, timestamp=now, last_seen=now, count=entry["count"]+1)
+                self.diagnostic_entries.append(self.diagnostic_entries.pop(index))
+                return
         self.diagnostic_entries.append({
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "category": category, "message": message,
+            "timestamp": now, "first_seen": now, "last_seen": now, "count": 1,
+            "key": key, "category": category, "message": message,
         })
         self.diagnostic_entries = self.diagnostic_entries[-100:]
         LOGGER.warning("%s: %s", category, message)
@@ -74,7 +85,8 @@ class SamsungEHSCoordinator(DataUpdateCoordinator[dict]):
     def refresh_live(self, data, now=None):
         """Refresh the live ratio without polling or changing seven-day accounting."""
         now = now or datetime.now(timezone.utc)
-        metrics = decode(data, now)
+        metrics, (heat_time, outdoor_time) = self.snapshots.live(now.timestamp())
+        data["_decoded"] = metrics
         if self.power_sensor:
             state = self.hass.states.get(self.power_sensor)
             watts = self.capture_external_power(now)
@@ -95,7 +107,6 @@ class SamsungEHSCoordinator(DataUpdateCoordinator[dict]):
                 fresh = False
                 power_time = None
             self.live_power.record(power_time, watts, now.timestamp())
-        heat_time, outdoor_time = thermal_timestamps(data, now)
         paired = self.live_power.closest(heat_time)
         matching_method = "closest" if paired else "unavailable"
         if paired is None and heat_time is not None:
@@ -119,10 +130,16 @@ class SamsungEHSCoordinator(DataUpdateCoordinator[dict]):
             net_thermal_power=net_heat_kw(metrics),
         )
 
-        # Replay delayed cycle packets only against power actually observed here.
-        self.snapshots.sample(now.timestamp(), watts if self.power_sensor else None)
+        # Record power cheaply; the timer or next API batch performs reconciliation.
+        self.snapshots.sample(now.timestamp(), watts if self.power_sensor else None,
+                              available=self.snapshots.valid_response)
+
+    def update_daily(self, data, now):
+        """Reconcile on the heartbeat/API batch, never on every power event."""
         self.daily.replay(now.timestamp(), self.snapshots.intervals(now.timestamp()))
-        data["_performance"].update(self.daily.values(now.timestamp()))
+        history, values = self.daily.summary(now.timestamp())
+        data["_daily_history"] = history
+        data.setdefault("_performance", {}).update(values)
 
     @callback
     def daily_tick(self, now):
@@ -131,9 +148,9 @@ class SamsungEHSCoordinator(DataUpdateCoordinator[dict]):
                 self.refresh_live(self.data, now)
             else:
                 self.snapshots.sample(now.timestamp(), None, available=False)
-                self.daily.replay(now.timestamp(), self.snapshots.intervals(now.timestamp()))
-                self.data.setdefault("_performance", {}).update(self.daily.values(now.timestamp()))
-            self.daily_store.async_delay_save(self.daily.saved, 10)
+
+            self.update_daily(self.data, now)
+            self.daily_store.async_delay_save(self.saved_daily, 10)
             self.async_update_listeners()
 
     @callback
@@ -150,15 +167,13 @@ class SamsungEHSCoordinator(DataUpdateCoordinator[dict]):
             data = await self.client.status(self.device_id)
             now = datetime.now(timezone.utc)
             self.snapshots.ingest(data, now.timestamp())
-            for message in cycle_errors(data, now):
-                self.record_failure("Parsing", message)
-            metrics = decode(data, now)
+            for key, message in self.snapshots.failures:
+                self.record_failure("Parsing", message, key)
             report = field(data, "main", "powerConsumptionReport", "powerConsumption") or {}
             if not isinstance(report, dict):
                 report = {}
             energy = report.get("energy")
             counter = energy / 1000 if number(energy) else None
-            heat = net_heat_kw(metrics)
             # A report timestamp is mandatory for the live ratio. It must be recent.
             attribute = ((data.get("components", {}).get("main", {})
                           .get("powerConsumptionReport", {}).get("powerConsumption", {})))
@@ -169,14 +184,12 @@ class SamsungEHSCoordinator(DataUpdateCoordinator[dict]):
                 fresh = False
             if fresh:
                 counter_time = timestamp.timestamp()
-                previous = self.performance.previous
-                intervals = self.snapshots.heat_intervals(previous[0], counter_time) if previous and counter_time > previous[0] else []
-                self.performance.update(counter_time, self.snapshots.heat_at(counter_time), counter,
-                                        heat_intervals=intervals)
+                self.performance.observe_counter(counter_time, counter, now.timestamp())
             else:
                 self.performance.previous = None
-            data["_performance"] = self.performance.values(now.timestamp())
+            data["_performance"] = self.performance.reconcile(self.snapshots.heat_intervals, now.timestamp())
             self.refresh_live(data, now)
+            self.update_daily(data, now)
             self.store.async_delay_save(self.performance.saved, 30)
             return data
         except SmartThingsAuthError as exc:
@@ -185,9 +198,6 @@ class SamsungEHSCoordinator(DataUpdateCoordinator[dict]):
         except SmartThingsError as exc:
             self.record_failure("API status", str(exc))
             raise UpdateFailed("SmartThings status retrieval failed") from exc
-        except (TypeError, ValueError, AttributeError, KeyError, IndexError) as exc:
-            self.record_failure("Parsing", f"Unexpected status structure ({type(exc).__name__})")
-            raise UpdateFailed("Unable to parse SmartThings status") from exc
 
 
 async def async_setup(hass: HomeAssistant, config) -> bool:
@@ -208,6 +218,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         raise ConfigEntryNotReady(str(exc)) from exc
     daily_saved = await coordinator.daily_store.async_load()
     coordinator.daily = DailyPerformance(hass.config.time_zone, coordinator.power_sensor, daily_saved)
+    if (isinstance(daily_saved, dict) and daily_saved.get("zone") == hass.config.time_zone
+            and daily_saved.get("source") == coordinator.power_sensor):
+        coordinator.snapshots = SnapshotHistory(daily_saved.get("snapshot_history"))
     saved = await coordinator.store.async_load()
     coordinator.performance = RollingPerformance(saved)
     if not coordinator.power_sensor:
@@ -243,7 +256,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
         coordinator = hass.data[DOMAIN][entry.entry_id]
-        await coordinator.daily_store.async_save(coordinator.daily.saved())
+        if coordinator.data is not None:
+            coordinator.update_daily(coordinator.data, datetime.now(timezone.utc))
+        await coordinator.daily_store.async_save(coordinator.saved_daily())
         await coordinator.store.async_save(coordinator.performance.saved())
         hass.data[DOMAIN].pop(entry.entry_id, None)
     return unloaded

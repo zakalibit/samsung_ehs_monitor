@@ -47,6 +47,7 @@ class SamsungEHSDashboard(LovelaceConfig):
             "icon": "mdi:heat-pump", "show_in_sidebar": True, "require_admin": False})
         self.entry = entry
         self.template = template
+        self._entity_ids = set()
 
     @property
     def mode(self):
@@ -61,6 +62,7 @@ class SamsungEHSDashboard(LovelaceConfig):
             if entity.platform == DOMAIN and entity.domain == "sensor"
             and entity.unique_id.startswith(prefix) and entity.disabled_by is None
         }
+        self._entity_ids = set(sensors.values())
         return build_dashboard(self.template, sensors, self.config["title"])
 
     async def async_json(self, force):
@@ -72,8 +74,18 @@ class SamsungEHSDashboard(LovelaceConfig):
 
     @callback
     def registry_changed(self, event):
-        # Includes removals and renames, whose old IDs may no longer be in the registry.
-        self._config_updated()
+        data = event.data
+        if (data.get("action") == "update"
+                and not {"entity_id", "disabled_by", "config_entry_id", "unique_id"}.intersection(data.get("changes", {}))):
+            return
+        entity_id = data.get("entity_id")
+        previous_id = data.get("changes", {}).get("entity_id")
+        entries = er.async_entries_for_config_entry(er.async_get(self.hass), self.entry.entry_id)
+        current_ids = {entity.entity_id for entity in entries
+                       if entity.platform == DOMAIN and entity.domain == "sensor"}
+        if entity_id in self._entity_ids | current_ids or previous_id in self._entity_ids:
+            self._entity_ids = current_ids
+            self._config_updated()
 
 
 async def async_setup_dashboard(hass, entry):

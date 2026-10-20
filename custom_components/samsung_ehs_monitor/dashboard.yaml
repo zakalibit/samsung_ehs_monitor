@@ -149,11 +149,11 @@ views:
           {% elif not entries %}
           No failures recorded since the integration was loaded.
           {% else %}
-          | Time (UTC) | Source | Failure |
-          | --- | --- | --- |
+          | Last seen (UTC) | First seen (UTC) | Count | Source | Failure |
+          | --- | --- | --- | --- | --- |
           {% for entry in entries -%}
-          | {{ entry.timestamp }} | {{ entry.category }} | {{ entry.message }} |
+          | {{ entry.last_seen }} | {{ entry.first_seen }} | {{ entry.count }} | {{ entry.category }} | {{ entry.message | replace('|', '/') | replace('\n', ' ') }} |
           {% endfor %}
           {% endif %}
 
-          Latest 100 failures. Cleared on restart or integration reload.
+          Latest 100 distinct failures. Repeated failures are grouped. Cleared on restart or integration reload.

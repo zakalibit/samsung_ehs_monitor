@@ -3,6 +3,7 @@ import ast
 from pathlib import Path
 from types import SimpleNamespace as NS
 import unittest
+from unittest.mock import Mock
 
 BASE = Path(__file__).resolve().parents[1] / 'custom_components/samsung_ehs_monitor'
 
@@ -51,7 +52,8 @@ class FrontendTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         tree = ast.parse((BASE / 'frontend.py').read_text())
         nodes = [node for node in tree.body if not isinstance(node, (ast.Import, ast.ImportFrom))]
-        self.scope = {'LOVELACE_DATA': 'lovelace', 'ResourceStorageCollection': StorageResources}
+        self.scope = {'LOVELACE_DATA': 'lovelace', 'ResourceStorageCollection': StorageResources,
+                      'add_extra_js_url': Mock()}
         exec(compile(ast.Module(body=nodes, type_ignores=[]), 'frontend.py', 'exec'), self.scope)
         self.path = self.scope['RESOURCE_PATH']
         self.url = self.scope['RESOURCE_URL']
@@ -84,7 +86,21 @@ class FrontendTests(unittest.IsolatedAsyncioTestCase):
         resources = YAMLResources([other, {'url': self.path + '?v=old', 'type': 'js'}])
         await self.register(resources)
         await self.register(resources)
-        self.assertEqual(resources.data, [other, {'url': self.url, 'type': 'module'}])
+        self.assertEqual(resources.data, [other, {'url': self.path + '?v=old', 'type': 'js'}])
+        self.scope['add_extra_js_url'].assert_called_with(unittest.mock.ANY, self.url)
+
+    async def test_yaml_reload_does_not_remove_frontend_module_registration(self):
+        modules = set()
+        self.scope['add_extra_js_url'] = lambda hass, url: modules.add(url)
+        resources = YAMLResources([{'url': '/other.js', 'type': 'module'}])
+        hass = NS(data={'lovelace': NS(resources=resources)})
+        await self.scope['async_register_resources'](hass)
+        # lovelace.reload_resources replaces this collection, not frontend modules.
+        hass.data['lovelace'].resources = YAMLResources([])
+        self.assertEqual(modules, {self.url})
+        self.assertEqual(resources.data, [{'url': '/other.js', 'type': 'module'}])
+        await self.scope['async_register_resources'](hass)
+        self.assertEqual(modules, {self.url})
 
 
 if __name__ == '__main__':

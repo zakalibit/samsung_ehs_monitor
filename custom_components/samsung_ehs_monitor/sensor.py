@@ -1,8 +1,6 @@
 """Read-only Samsung EHS entities from SmartThings API (no commands)."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 from homeassistant.components.sensor import SensorEntity, SensorDeviceClass, SensorStateClass
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
@@ -10,12 +8,7 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
-from .decoder import decode, latest
-
-
-def read(data, component, capability, attr):
-    return (((data.get("components") or {}).get(component) or {})
-            .get(capability) or {}).get(attr, {}).get("value")
+from .decoder import field as read, latest
 
 
 def power(data, field):
@@ -35,6 +28,7 @@ def cycle(data, kind):
 
 class SamsungEHSSensor(CoordinatorEntity, SensorEntity):
     _attr_has_entity_name = True
+    _unrecorded_attributes = frozenset({"daily_history"})
 
     def __init__(self, coordinator, key, name, getter, *, unit=None, diagnostic=False,
                  device_class=None, state_class=None):
@@ -57,12 +51,14 @@ class SamsungEHSSensor(CoordinatorEntity, SensorEntity):
     @property
     def extra_state_attributes(self):
         if self.key in {"estimated_cop_today", "estimated_heat_energy_today", "electrical_energy_today", "daily_performance_coverage"}:
-            return {
+            attributes = {
                 "power_source": self.coordinator.power_sensor,
                 "timezone": self.hass.config.time_zone,
                 "calculation": "ratio of energy over valid paired intervals; check coverage",
-                "daily_history": self.coordinator.daily.history(datetime.now(timezone.utc).timestamp()),
             }
+            if self.key == "estimated_cop_today":
+                attributes["daily_history"] = self.coordinator.data.get("_daily_history", [])
+            return attributes
         if self.key in {"electrical_input_power", "estimated_cop"} and self.coordinator.power_sensor:
             state = self.hass.states.get(self.coordinator.power_sensor)
             return {
@@ -86,10 +82,7 @@ class SamsungEHSSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self):
-        try:
-            return self.getter(self.coordinator.data)
-        except (TypeError, ValueError, AttributeError, KeyError, IndexError):
-            return None
+        return self.getter(self.coordinator.data)
 
 
 class SamsungEHSLogSensor(SamsungEHSSensor):
@@ -178,7 +171,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     for key, name, unit, device_class in metrics:
         entities.append(SamsungEHSSensor(
             coordinator, key, name,
-            lambda d, k=key: decode(d)[k],
+            lambda d, k=key: d.get("_decoded", {}).get(k),
             unit=unit, device_class=device_class, state_class=SensorStateClass.MEASUREMENT,
         ))
     performance = [

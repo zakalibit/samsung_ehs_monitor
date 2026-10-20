@@ -50,7 +50,7 @@ api = production('api.py', dict(asyncio=asyncio, ClientError=ClientError,
 
 class Response:
     def __init__(self, data=None):
-        self.data = data or {'items': [], 'components': {}}
+        self.data = data or {'items': [], 'components': {'main': {}}}
 
     async def __aenter__(self):
         return self

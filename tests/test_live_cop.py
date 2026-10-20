@@ -43,14 +43,14 @@ class LiveCOPTests(unittest.TestCase):
         self.now = datetime(2026, 10, 20, 12, 0, tzinfo=timezone.utc)
         self.when = self.now.timestamp()
         self.coordinator, self.states = external.ExternalPowerTests().make(state='100')
+        del self.coordinator.snapshots.live
         self.states['sensor.shelly_power'].last_reported = self.now
         self.data = batch([(self.when-120, 40)])
         self.coordinator.live_power.record(self.when-120, 1000, self.when)
 
     def refresh(self, data=None):
-        with patch.dict(external.scope, decode=external.d.decode,
-                        thermal_timestamps=external.d.thermal_timestamps):
-            self.coordinator.refresh_live(data if data is not None else self.data, self.now)
+        self.coordinator.snapshots.ingest(data if data is not None else self.data, self.now.timestamp())
+        self.coordinator.refresh_live(data if data is not None else self.data, self.now)
 
     def test_start_stop_power_does_not_skew_old_heat(self):
         self.refresh()

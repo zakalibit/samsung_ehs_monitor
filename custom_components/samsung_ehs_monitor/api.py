@@ -32,7 +32,10 @@ class SmartThingsClient:
                 timeout=ClientTimeout(total=20),
             ) as response:
                 response.raise_for_status()
-                return await response.json()
+                data = await response.json()
+                if not isinstance(data, dict):
+                    raise SmartThingsError("SmartThings returned an invalid response structure")
+                return data
         except ClientResponseError as exc:
             if exc.status in (401, 403):
                 raise SmartThingsAuthError("SmartThings access denied") from exc
@@ -48,9 +51,20 @@ class SmartThingsClient:
         path = "/devices"
         for _ in range(15):
             data = await self._get(path)
-            items.extend(data.get("items", []))
-            next_link = (data.get("_links") or {}).get("next") or {}
-            href = next_link.get("href") if isinstance(next_link, dict) else None
+            page = data.get("items")
+            if (not isinstance(page, list) or any(not isinstance(row, dict)
+                    or not isinstance(row.get("deviceId"), str) for row in page)):
+                raise SmartThingsError("SmartThings returned an invalid device list")
+            items.extend(page)
+            links = data.get("_links", {})
+            if not isinstance(links, dict):
+                raise SmartThingsError("SmartThings returned invalid pagination")
+            next_link = links.get("next", {})
+            if not isinstance(next_link, dict):
+                raise SmartThingsError("SmartThings returned invalid pagination")
+            href = next_link.get("href")
+            if href is not None and not isinstance(href, str):
+                raise SmartThingsError("SmartThings returned invalid pagination")
             if not href:
                 break
             # Never follow off-site pagination links with the access token.
@@ -63,13 +77,57 @@ class SmartThingsClient:
         return items
 
     async def device(self, device_id: str) -> dict:
-        return await self._get(f"/devices/{device_id}")
+        data = await self._get(f"/devices/{device_id}")
+        if data.get("presentationId") is not None and not isinstance(data["presentationId"], str):
+            raise SmartThingsError("SmartThings returned invalid device metadata")
+        return data
 
     async def status(self, device_id: str) -> dict:
         data = await self._get(f"/devices/{device_id}/status")
-        if not isinstance(data, dict) or not isinstance(data.get("components"), dict):
-            raise SmartThingsError("SmartThings returned an invalid status structure")
+        validate_status(data)
         return data
+
+
+def validate_status(data):
+    """Validate containers at the API boundary; packet contents belong to the decoder."""
+    if (not isinstance(data, dict) or not isinstance(data.get("components"), dict)
+            or not isinstance(data["components"].get("main"), dict)):
+        raise SmartThingsError("SmartThings returned an invalid status structure")
+    for component in data["components"].values():
+        if not isinstance(component, dict):
+            raise SmartThingsError("SmartThings returned an invalid component structure")
+        for capability, attributes in component.items():
+            if not isinstance(attributes, dict):
+                raise SmartThingsError("SmartThings returned an invalid capability structure")
+            for name, attribute in attributes.items():
+                if not isinstance(attribute, dict):
+                    raise SmartThingsError("SmartThings returned an invalid attribute structure")
+                timestamp = attribute.get("timestamp")
+                if timestamp is not None and not isinstance(timestamp, str):
+                    raise SmartThingsError("SmartThings returned an invalid attribute timestamp")
+                value = attribute.get("value")
+                if value is None:
+                    continue
+                if capability in {"samsungce.ehsCycleData", "samsungce.ehsFsvSettings"}:
+                    if not isinstance(value, list):
+                        raise SmartThingsError("SmartThings returned an invalid cycle/settings list")
+                    if capability == "samsungce.ehsFsvSettings":
+                        for row in value:
+                            if (not isinstance(row, dict) or not isinstance(row.get("id"), (str, int))
+                                    or not isinstance(row.get("value"), (str, int, float, bool, type(None)))):
+                                raise SmartThingsError("SmartThings returned an invalid settings entry")
+                elif capability == "powerConsumptionReport" and name == "powerConsumption":
+                    if not isinstance(value, dict):
+                        raise SmartThingsError("SmartThings returned an invalid power report")
+                elif (capability, name) in {
+                    ("temperatureMeasurement", "temperature"), ("switch", "switch"),
+                    ("airConditionerMode", "airConditionerMode"),
+                    ("samsungce.ehsTemperatureReference", "temperatureReference"),
+                    ("thermostatCoolingSetpoint", "coolingSetpoint"),
+                    ("custom.outingMode", "outingMode"), ("samsungce.deviceIdentification", "binaryId"),
+                }:
+                    if not isinstance(value, (str, int, float, bool)):
+                        raise SmartThingsError("SmartThings returned an invalid sensor value")
 
 
 def is_ehs_status(data: dict) -> bool:

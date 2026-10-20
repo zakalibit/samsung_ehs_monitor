@@ -1,13 +1,17 @@
 """Register the bundled components with Lovelace's resource loader."""
+from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.components.lovelace.const import LOVELACE_DATA
 from homeassistant.components.lovelace.resources import ResourceStorageCollection
 
 RESOURCE_PATH = "/samsung_ehs_monitor/daily-cop-card.js"
-RESOURCE_URL = f"{RESOURCE_PATH}?v=0.8.3"
+RESOURCE_URL = f"{RESOURCE_PATH}?v=0.11.0"
 
 
 async def async_register_resources(hass):
     """Maintain one versioned module, preserving unrelated dashboard resources."""
+    # The frontend's module loader survives replacement of YAML resource collections
+    # by lovelace.reload_resources. The same URL is loaded only once by the browser.
+    add_extra_js_url(hass, RESOURCE_URL)
     resources = hass.data[LOVELACE_DATA].resources
     # Storage resources are loaded lazily. Inspecting async_items before loading
     # can miss an existing entry and create a duplicate on every restart.
@@ -25,6 +29,6 @@ async def async_register_resources(hass):
         else:
             await resources.async_create_item({"url": RESOURCE_URL, "res_type": "module"})
     else:
-        # YAML resources are runtime-only; do not rewrite the user's YAML.
-        resources.data = [item for item in resources.async_items() if item not in matches]
-        resources.data.append({"url": RESOURCE_URL, "type": "module"})
+        # YAML resources belong to the user. The frontend module registration above
+        # provides our components without injecting a resource that reload discards.
+        return

@@ -65,7 +65,8 @@ class DashboardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(cards), 3)  # Help, heat, daily COP; empty history removed.
         self.assertEqual(cards[1]['entities'], [{'entity': 'sensor.kitchen_heat', 'name': 'Heat'}])
         self.entities[0].entity_id = 'sensor.renamed'
-        dashboard.registry_changed(NS())
+        dashboard.registry_changed(NS(data={'entity_id': 'sensor.renamed', 'action': 'update',
+                                                'changes': {'entity_id': 'sensor.kitchen_heat'}}))
         dashboard._config_updated.assert_called_once()
         config = await dashboard.async_json(False)
         self.assertEqual(config['views'][0]['cards'][1]['entities'][0]['entity'], 'sensor.renamed')
@@ -96,6 +97,29 @@ class DashboardTests(unittest.IsolatedAsyncioTestCase):
         content = config['views'][0]['cards'][0]['content']
         self.assertIn('sensor.renamed_log', content)
         self.assertNotIn('__FAILURE_LOG_ENTITY__', content)
+
+    async def test_registry_updates_ignore_unrelated_entities_and_irrelevant_attributes(self):
+        dashboard = self.scope['SamsungEHSDashboard'](self.hass, self.entry, self.template, 'ehs-test')
+        await dashboard.async_load(False)
+        for data in ({'entity_id': 'sensor.unrelated', 'action': 'create'},
+                     {'entity_id': 'sensor.unrelated', 'action': 'remove'},
+                     {'entity_id': 'sensor.kitchen_heat', 'action': 'update', 'changes': {'icon': 'old'}}):
+            dashboard.registry_changed(NS(data=data))
+        dashboard._config_updated.assert_not_called()
+        self.entities[0].disabled_by = 'user'
+        dashboard.registry_changed(NS(data={'entity_id': 'sensor.kitchen_heat', 'action': 'update',
+                                            'changes': {'disabled_by': None}}))
+        dashboard._config_updated.assert_called_once()
+        dashboard._config_updated.reset_mock()
+        self.entities.pop(0)
+        dashboard.registry_changed(NS(data={'entity_id': 'sensor.kitchen_heat', 'action': 'remove'}))
+        dashboard._config_updated.assert_called_once()
+
+    def test_example_is_generated_from_current_template_and_sensor_names(self):
+        import subprocess
+        import sys
+        subprocess.run([sys.executable, 'scripts/generate_dashboard_example.py', '--check'],
+                       cwd=BASE.parents[1], check=True, capture_output=True)
 
     async def test_setup_unload_reload_and_opt_out(self):
         setup = self.scope['async_setup_dashboard']

@@ -3,6 +3,7 @@ class SamsungEHSDailyCOPCard extends HTMLElement {
   setConfig(config) {
     if (!config.entity) throw new Error('Specify the Estimated COP today entity');
     this.config = config;
+    this.lastState = Symbol();
     if (!this.shadowRoot) this.attachShadow({mode: 'open'});
   }
   getCardSize() { return 5; }
@@ -40,7 +41,21 @@ class SamsungEHSDailyCOPCard extends HTMLElement {
       return;
     }
     const count = Math.max(1, Math.min(35, Number(this.config.days_to_show) || 14));
-    const rows = (state.attributes.daily_history || []).slice(-count);
+    const history = state.attributes.daily_history;
+    const rows = (Array.isArray(history) ? history : [])
+      .filter(row => row && typeof row === 'object'
+        && /^\d{4}-\d{2}-\d{2}$/.test(row.date)
+        && typeof row.date === 'string')
+      .slice(-count).map(row => ({
+        date: row.date,
+        heat_kwh: Number.isFinite(row.heat_kwh) ? row.heat_kwh : null,
+        electricity_kwh: Number.isFinite(row.electricity_kwh) && row.electricity_kwh >= 0 ? row.electricity_kwh : null,
+        cop: Number.isFinite(row.cop) && row.cop >= 0 ? row.cop : null,
+        coverage: Number.isFinite(row.coverage) ? Math.max(0, Math.min(100, row.coverage)) : null,
+        today: row.today === true,
+        complete: row.complete === true,
+      }));
+    const fixed = (value, places) => Number.isFinite(value) ? value.toFixed(places) : '—';
     if (!rows.length || !rows.some(r => Number.isFinite(r.cop))) {
       el('p', 'Collecting paired heat and electricity readings. Bars appear after valid energy has accumulated.', card);
     }
@@ -80,7 +95,7 @@ class SamsungEHSDailyCOPCard extends HTMLElement {
         svgEl('text',{x:x+(step-12)/2,y:181,'text-anchor':'middle'},svg,'—');
       }
       svgEl('text',{x:x+(step-12)/2,y:208,'text-anchor':'middle'},svg,r.date.slice(5));
-      svgEl('text',{x:x+(step-12)/2,y:225,'text-anchor':'middle'},svg,r.today ? 'today' : `${r.coverage.toFixed(0)}%`);
+      svgEl('text',{x:x+(step-12)/2,y:225,'text-anchor':'middle'},svg,r.today ? 'today' : `${fixed(r.coverage, 0)}%`);
     });
     const details = el('details',undefined,card);
     el('summary','Daily energy and coverage',details);
@@ -90,8 +105,8 @@ class SamsungEHSDailyCOPCard extends HTMLElement {
     const body = el('tbody',undefined,table);
     for (const r of [...rows].reverse()) {
       const row = el('tr',undefined,body);
-      for (const value of [r.date, r.heat_kwh.toFixed(3), r.electricity_kwh.toFixed(3),
-        Number.isFinite(r.cop) ? r.cop.toFixed(2) : '—', `${r.coverage.toFixed(1)}%`]) el('td',value,row);
+      for (const value of [r.date, fixed(r.heat_kwh, 3), fixed(r.electricity_kwh, 3),
+        Number.isFinite(r.cop) ? r.cop.toFixed(2) : '—', `${fixed(r.coverage, 1)}%`]) el('td',value,row);
     }
     el('p', `Local days: ${state.attributes.timezone || 'Home Assistant timezone'}. Source: ${state.attributes.power_source}.`,card);
   }
