@@ -1,0 +1,103 @@
+"""Pure calculation helpers; rolling windows never fill missing data with zero."""
+from __future__ import annotations
+
+from math import isfinite
+
+WEEK = 7 * 86400
+MAX_GAP = 660  # Five-minute polls; do not bridge extended outages.
+
+
+def number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and isfinite(value)
+
+
+def electrical_watts(raw, presentation_id):
+    """Match HA SmartThings: EHS presentation raw kW -> W; otherwise raw W."""
+    if not number(raw) or raw < 0 or not isinstance(presentation_id, str) or not presentation_id:
+        return None
+    return raw * 1000 if "EHS" in presentation_id else raw
+
+
+def external_watts(state, unit):
+    """Convert an HA power state to W; never reinterpret energy or clamp export."""
+    if isinstance(state, bool):
+        return None
+    try:
+        value = float(state)
+    except (TypeError, ValueError):
+        return None
+    if not isfinite(value) or value < 0:
+        return None
+    if unit == "W":
+        return value
+    if unit == "kW":
+        return value * 1000
+    return None
+
+
+def net_heat_kw(metrics):
+    """Signed sensible-water heat including defrost; zero only for fresh off data."""
+    flow, hot, cold, frequency = (metrics.get(k) for k in (
+        "water_flow_rate", "water_flow_temperature", "water_return_temperature",
+        "compressor_frequency"))
+    if not all(number(x) for x in (flow, hot, cold, frequency)):
+        return None
+    if flow < 0 or frequency < 0 or abs(hot - cold) > 20:
+        return None
+    if frequency == 0:
+        return 0.0
+    if flow < 1:
+        return None
+    return round(0.0698 * flow * (hot - cold), 3)
+
+
+def instantaneous_cop(heat, watts):
+    if not number(heat) or heat <= 0 or not number(watts) or watts <= 0:
+        return None
+    return round(heat * 1000 / watts, 2)
+
+
+class RollingPerformance:
+    """Paired heat/counter intervals stored in kWh, clipped to the last 168h.
+
+    Interpolate both boundary energies linearly within each poll interval.
+    Negative counter jumps, missing inputs and long gaps invalidate that interval.
+    A complete window is required before publishing any seven-day total or COP.
+    """
+
+    def __init__(self, saved=None):
+        self.rows = (saved or {}).get("rows", [])
+        self.previous = None  # Never integrate unobserved time across a restart.
+
+    def update(self, now, heat, counter_kwh):
+        valid = number(heat) and number(counter_kwh) and counter_kwh >= 0
+        if valid and self.previous is not None:
+            before, old_heat, old_counter = self.previous
+            dt = now - before
+            delta = counter_kwh - old_counter
+            if 0 < dt <= MAX_GAP and delta >= 0:
+                # Trapezoid on signed thermal samples; counter difference on electricity.
+                self.rows.append([before, now, (old_heat + heat) / 2 * dt / 3600, delta])
+        self.previous = (now, heat, counter_kwh) if valid else None
+        self.rows = [r for r in self.rows if r[1] > now - WEEK]
+        return self.values(now)
+
+    def values(self, now):
+        heat = electricity = seconds = 0.0
+        for start, end, q, e in self.rows:
+            overlap = max(0, min(end, now) - max(start, now - WEEK))
+            fraction = overlap / (end - start)
+            heat += q * fraction
+            electricity += e * fraction
+            seconds += overlap
+        complete = seconds >= WEEK - 0.001
+        return {
+            "performance_7d_coverage": round(min(100, seconds / WEEK * 100), 3),
+            "estimated_heat_energy_7d": round(heat, 3) if complete else None,
+            "electrical_energy_7d": round(electricity, 3) if complete else None,
+            "estimated_cop_7d": round(heat / electricity, 2)
+            if complete and electricity > 0 and heat > 0 else None,
+        }
+
+    def saved(self):
+        return {"rows": self.rows}

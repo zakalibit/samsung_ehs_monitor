@@ -1,0 +1,124 @@
+"""Test registry resolution and managed panel lifecycle without a HA installation."""
+import ast
+from pathlib import Path
+from types import SimpleNamespace as NS
+import unittest
+from unittest.mock import Mock
+
+BASE = Path(__file__).resolve().parents[1] / 'custom_components/samsung_ehs_monitor'
+
+
+class Config:
+    def __init__(self, hass, path, config):
+        self.hass = hass
+        self.config = {**config, 'url_path': path}
+        self._config_updated = Mock()
+
+
+class DashboardTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        tree = ast.parse((BASE / 'dashboard.py').read_text())
+        nodes = [n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))]
+        self.frontend = NS(async_panel_exists=Mock(return_value=False),
+                           async_register_built_in_panel=Mock(), async_remove_panel=Mock())
+        self.registry = NS(async_entries_for_config_entry=lambda registry, entry_id: registry[entry_id],
+                           async_get=lambda hass: hass.registry,
+                           EVENT_ENTITY_REGISTRY_UPDATED='registry_updated')
+        self.scope = dict(LovelaceConfig=Config, MODE_YAML='yaml', LOVELACE_DATA='lovelace',
+                          DOMAIN='samsung_ehs_monitor', CONF_DEVICE_ID='device_id',
+                          CONF_CREATE_DASHBOARD='create_dashboard', er=self.registry,
+                          callback=lambda f: f, frontend=self.frontend, Path=Path,
+                          __file__=str(BASE / 'dashboard.py'), LOGGER=Mock(),
+                          load_yaml_dict=lambda path: self.template, cached_json_fragment=lambda v: v)
+        exec(compile(ast.Module(body=nodes, type_ignores=[]), 'dashboard.py', 'exec'), self.scope)
+        self.template = {'title': 'EHS', 'views': [{'cards': [
+            {'type': 'markdown', 'content': 'Help'},
+            {'type': 'entities', 'entities': [{'entity': 'thermal_power', 'name': 'Heat'},
+                                              {'entity': 'energy'}]},
+            {'type': 'custom:samsung-ehs-daily-cop-card', 'entity': 'estimated_cop_today'},
+            {'type': 'history-graph', 'entities': [{'entity': 'missing'}]},
+        ]}]}
+        self.cleanups = []
+        self.entry = NS(entry_id='entry1', data={'device_id': 'pump1'}, title='Heat pump',
+                        options={'create_dashboard': True}, async_on_unload=self.cleanups.append)
+        self.entities = [self.entity('thermal_power', 'sensor.kitchen_heat'),
+                         self.entity('energy', 'sensor.disabled', disabled='user'),
+                         self.entity('estimated_cop_today', 'sensor.daily'),
+                         self.entity('fsv_2011', 'sensor.custom_fsv')]
+        self.unsubscribe = Mock()
+        async def executor(func, *args):
+            return func(*args)
+        self.hass = NS(data={'lovelace': NS(dashboards={})}, registry={'entry1': self.entities},
+                       async_add_executor_job=executor,
+                       bus=NS(async_listen=Mock(return_value=self.unsubscribe)))
+
+    def entity(self, key, eid, disabled=None, device='pump1', platform='samsung_ehs_monitor'):
+        return NS(unique_id=f'{device}_{key}', entity_id=eid, domain='sensor',
+                  platform=platform, disabled_by=disabled)
+
+    async def test_resolution_rename_filtering(self):
+        self.entities.extend([self.entity('energy', 'sensor.other_pump', device='pump2'),
+                              self.entity('energy', 'sensor.other_integration', platform='other')])
+        dashboard = self.scope['SamsungEHSDashboard'](self.hass, self.entry, self.template, 'ehs-test')
+        config = await dashboard.async_load(False)
+        cards = config['views'][0]['cards']
+        self.assertEqual(len(cards), 3)  # Help, heat, daily COP; empty history removed.
+        self.assertEqual(cards[1]['entities'], [{'entity': 'sensor.kitchen_heat', 'name': 'Heat'}])
+        self.entities[0].entity_id = 'sensor.renamed'
+        dashboard.registry_changed(NS())
+        dashboard._config_updated.assert_called_once()
+        config = await dashboard.async_json(False)
+        self.assertEqual(config['views'][0]['cards'][1]['entities'][0]['entity'], 'sensor.renamed')
+        self.assertEqual(self.template['views'][0]['cards'][1]['entities'][0]['entity'], 'thermal_power')
+        self.entities.clear()
+        self.assertEqual((await dashboard.async_load(False))['views'][0]['cards'],
+                         [{'type': 'markdown', 'content': 'Help'}])
+
+    async def test_setup_unload_reload_and_opt_out(self):
+        setup = self.scope['async_setup_dashboard']
+        await setup(self.hass, self.entry)
+        dashboards = self.hass.data['lovelace'].dashboards
+        self.assertEqual(list(dashboards), ['samsung-ehs-entry1'])
+        self.frontend.async_register_built_in_panel.assert_called_once()
+        for cleanup in self.cleanups:
+            cleanup()
+        self.assertEqual(dashboards, {})
+        self.unsubscribe.assert_called_once()
+        await setup(self.hass, self.entry)
+        self.assertEqual(len(dashboards), 1)
+        self.entry.options = {}
+        self.entry.entry_id = 'entry2'
+        await setup(self.hass, self.entry)
+        self.assertEqual(len(dashboards), 1)
+
+    async def test_collision_preserves_existing_dashboard(self):
+        existing = object()
+        self.hass.data['lovelace'].dashboards['samsung-ehs-entry1'] = existing
+        await self.scope['async_setup_dashboard'](self.hass, self.entry)
+        self.assertIs(self.hass.data['lovelace'].dashboards['samsung-ehs-entry1'], existing)
+        self.frontend.async_register_built_in_panel.assert_not_called()
+        self.assertEqual(self.cleanups, [])
+
+    async def test_two_entries_have_separate_panels_and_sensors(self):
+        await self.scope['async_setup_dashboard'](self.hass, self.entry)
+        other = NS(entry_id='entry2', title='Second pump', data={'device_id': 'pump2'},
+                   options={'create_dashboard': True}, async_on_unload=lambda f: None)
+        self.hass.registry['entry2'] = [self.entity('thermal_power', 'sensor.second', device='pump2')]
+        await self.scope['async_setup_dashboard'](self.hass, other)
+        dashboards = self.hass.data['lovelace'].dashboards
+        self.assertEqual(len(dashboards), 2)
+        config = await dashboards['samsung-ehs-entry2'].async_load(False)
+        self.assertEqual(config['views'][0]['cards'][1]['entities'][0]['entity'], 'sensor.second')
+
+    def test_bundled_template_uses_known_unique_id_keys(self):
+        import re
+        sensor_source = (BASE / 'sensor.py').read_text()
+        keys = re.findall(r'entity: (\w+)', (BASE / 'dashboard.yaml').read_text())
+        self.assertGreater(len(keys), 25)
+        for key in keys:
+            self.assertTrue(f'"{key}"' in sensor_source or key in {'cycle_indoor', 'cycle_outdoor'}, key)
+        self.assertNotIn('kitchen_', (BASE / 'dashboard.yaml').read_text())
+
+
+if __name__ == '__main__':
+    unittest.main()

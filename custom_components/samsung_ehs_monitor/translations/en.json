@@ -1,0 +1,46 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to SmartThings",
+        "description": "Enter a SmartThings personal access token with permission to read devices. The integration only sends read-only API requests.",
+        "data": {
+          "token": "SmartThings access token"
+        }
+      },
+      "device": {
+        "title": "Choose a Samsung EHS heat pump",
+        "description": "Only devices exposing Samsung EHS capabilities are listed.",
+        "data": {
+          "device_id": "Device to monitor"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid token or insufficient SmartThings permissions.",
+      "cannot_connect": "Unable to reach SmartThings. Try again later.",
+      "no_devices": "No compatible Samsung EHS devices found with this token.",
+      "invalid_device": "Please select a listed device."
+    },
+    "abort": {
+      "already_configured": "This device is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Samsung EHS settings",
+        "description": "Select the Shelly (or other) power sensor measuring the heat pump. Supports W or kW. This replaces Samsung instantaneous power for live COP and daily energy/COP; seven-day electricity still uses the Samsung energy counter. Clear the selection to use Samsung again. If the chosen sensor is unavailable, live power and COP remain unknown without fallback. Enable the managed dashboard to add a sidebar dashboard for this heat pump. Sensor IDs are resolved automatically. Disable it to remove only the managed dashboard. Copy its configuration to a separate dashboard for customization.",
+        "data": {
+          "power_sensor": "External electrical power sensor (optional)",
+          "create_dashboard": "Create Samsung EHS dashboard"
+        }
+      }
+    },
+    "error": {
+      "own_sensor": "Choose a sensor from another integration, such as Shelly, to avoid a circular dependency.",
+      "invalid_power_sensor": "Choose an existing sensor entity.",
+      "invalid_power_unit": "The sensor must measure power in W or kW, not energy in Wh or kWh."
+    }
+  }
+}

@@ -1,0 +1,170 @@
+# Samsung EHS Monitor — optional manual dashboard example.
+# Paste into a dedicated dashboard’s Raw configuration editor.
+# Entity IDs assume no area prefix; adjust them to match your entity registry.
+# The integration-managed dashboard resolves entity IDs automatically.
+title: Samsung EHS
+views:
+  - title: Overview
+    path: overview
+    icon: mdi:heat-pump
+    cards:
+      - type: markdown
+        content: |
+          # Samsung EHS
+          Decoded water temperatures, heat output and equipment activity.
+
+          **Thermal output and COP are estimates.** Live COP uses your selected external power sensor, or Samsung power if none is selected. Daily energy/COP requires the external sensor. Seven-day COP requires a complete observed window.
+      - type: entities
+        title: At a glance
+        show_header_toggle: false
+        entities:
+          - entity: sensor.samsung_ehs_monitor_water_flow_temperature
+            name: Flow / outlet
+            icon: mdi:thermometer-chevron-up
+          - entity: sensor.samsung_ehs_monitor_water_return_temperature
+            name: Return / inlet
+            icon: mdi:thermometer-chevron-down
+          - entity: sensor.samsung_ehs_monitor_outdoor_temperature
+            name: Outdoors
+            icon: mdi:thermometer
+          - entity: sensor.samsung_ehs_monitor_water_flow_rate
+            name: Water flow
+            icon: mdi:waves-arrow-right
+          - entity: sensor.samsung_ehs_monitor_estimated_thermal_output
+            name: Estimated heat
+            icon: mdi:heat-wave
+          - entity: sensor.samsung_ehs_monitor_compressor_frequency
+            name: Compressor
+            icon: mdi:sine-wave
+      - type: entities
+        title: Estimated performance
+        show_header_toggle: false
+        entities:
+          - entity: sensor.samsung_ehs_monitor_electrical_input_power
+            name: Electrical input power · selected source
+            icon: mdi:flash
+          - entity: sensor.samsung_ehs_monitor_estimated_cop
+            name: Estimated live COP
+            icon: mdi:heat-pump
+          - entity: sensor.samsung_ehs_monitor_net_thermal_power
+            name: Net heat flow · includes defrost
+      - type: entities
+        title: Today · external power sensor
+        show_header_toggle: false
+        entities:
+          - entity: sensor.samsung_ehs_monitor_estimated_heat_energy_today
+            name: Estimated heat energy today
+          - entity: sensor.samsung_ehs_monitor_electrical_energy_today
+            name: Measured electricity today · valid paired intervals
+          - entity: sensor.samsung_ehs_monitor_estimated_cop_today
+            name: Estimated COP today
+          - entity: sensor.samsung_ehs_monitor_daily_performance_coverage
+            name: Coverage of elapsed day
+      - type: custom:samsung-ehs-daily-cop-card
+        title: Daily estimated COP
+        entity: sensor.samsung_ehs_monitor_estimated_cop_today
+        days_to_show: 14
+      - type: markdown
+        content: |
+          **Daily COP = accumulated net heat kWh ÷ accumulated selected-sensor electrical kWh.** Local calendar days use Home Assistant's timezone. Striped bars mark incomplete days; gaps are excluded from both totals. Check coverage before comparing days.
+
+          Daily history starts with this upgrade and retains 35 days. The chart is bundled with the plugin: no HACS cards or helpers are required. After upgrading, refresh the browser if the chart has not loaded.
+      - type: entities
+        title: Last 7 days · matched energy window
+        show_header_toggle: false
+        entities:
+          - entity: sensor.samsung_ehs_monitor_estimated_heat_energy_7d
+            name: Estimated heat produced
+          - entity: sensor.samsung_ehs_monitor_electrical_energy_7d
+            name: Electricity consumed
+          - entity: sensor.samsung_ehs_monitor_estimated_cop_7d
+            name: Estimated 7-day COP
+          - entity: sensor.samsung_ehs_monitor_performance_7d_coverage
+            name: Valid data coverage
+      - type: markdown
+        content: |
+          **Seven-day COP = net heat energy ÷ electricity consumed**, both in kWh over the last 168 hours.
+
+          Totals and seven-day COP remain unknown until a complete matched window is collected. Restarts, missing/stale samples, counter resets and extended outages leave gaps; they are not filled with zeros. Coverage shows progress. The plugin cannot backfill heat history from before installation.
+
+          Live COP uses the selected Shelly/external power sensor and the latest valid Samsung heat estimate. Seven-day electricity still comes from the Samsung accumulated counter, not the selected power sensor. It is unknown at zero input, outside positive heating, or with missing/stale inputs. Use this dashboard during heating / DHW operation; cooling periods make a heating COP comparison inappropriate.
+      - type: entities
+        title: Compressor and circulation
+        show_header_toggle: false
+        entities:
+          - entity: sensor.samsung_ehs_monitor_circulation_pump_speed
+            name: Circulation pump speed
+            icon: mdi:pump
+          - entity: sensor.samsung_ehs_monitor_compressor_frequency
+            name: Compressor actual frequency
+          - entity: sensor.samsung_ehs_monitor_compressor_target_frequency
+            name: Compressor target frequency
+          - entity: sensor.samsung_ehs_monitor_discharge_gas_temperature
+            name: Discharge gas temperature
+      - type: history-graph
+        title: Water temperatures · 24 hours
+        hours_to_show: 24
+        entities:
+          - entity: sensor.samsung_ehs_monitor_water_flow_temperature
+            name: Flow / outlet
+          - entity: sensor.samsung_ehs_monitor_water_return_temperature
+            name: Return / inlet
+      - type: history-graph
+        title: Estimated heat output · 24 hours
+        hours_to_show: 24
+        entities:
+          - entity: sensor.samsung_ehs_monitor_estimated_thermal_output
+            name: Estimated thermal output
+      - type: entities
+        title: Reported electrical energy
+        show_header_toggle: false
+        entities:
+          - entity: sensor.samsung_ehs_monitor_electrical_energy
+            name: Electrical energy (reported counter)
+          - entity: sensor.samsung_ehs_monitor_electrical_energy_difference
+            name: Electrical energy difference (reported)
+      - type: markdown
+        content: |
+          **Reading the values**
+
+          Cycle data older than 15 minutes, unsupported binary IDs or invalid packets produce unknown decoded readings. API failures can make entities unavailable.
+
+          Estimated heat uses water flow × temperature rise × 0.0698. It is only calculated with a running compressor, flow ≥ 1 L/min and a positive temperature rise ≤ 20 °C. Unknown heat output is not zero.
+
+          Electrical energy is reported in kWh. The reported counter now uses the official TOTAL_INCREASING classification for Home Assistant energy statistics. The reported energy difference is not a daily or seven-day total.
+  - title: Trends
+    path: trends
+    icon: mdi:chart-line
+    cards:
+      - type: history-graph
+        title: Outdoor temperature · 24 hours
+        hours_to_show: 24
+        entities:
+          - entity: sensor.samsung_ehs_monitor_outdoor_temperature
+            name: Outdoors
+      - type: history-graph
+        title: Water flow · 24 hours
+        hours_to_show: 24
+        entities:
+          - entity: sensor.samsung_ehs_monitor_water_flow_rate
+            name: Flow rate
+      - type: history-graph
+        title: Compressor frequency · 24 hours
+        hours_to_show: 24
+        entities:
+          - entity: sensor.samsung_ehs_monitor_compressor_frequency
+            name: Actual
+          - entity: sensor.samsung_ehs_monitor_compressor_target_frequency
+            name: Target
+      - type: history-graph
+        title: Pump speed · 24 hours
+        hours_to_show: 24
+        entities:
+          - entity: sensor.samsung_ehs_monitor_circulation_pump_speed
+            name: Pump speed
+      - type: history-graph
+        title: Discharge gas temperature · 24 hours
+        hours_to_show: 24
+        entities:
+          - entity: sensor.samsung_ehs_monitor_discharge_gas_temperature
+            name: Discharge gas

@@ -1,0 +1,15 @@
+{
+  "domain": "samsung_ehs_monitor",
+  "name": "Samsung EHS Monitor",
+  "version": "0.8.0",
+  "config_flow": true,
+  "documentation": "https://developer.smartthings.com/docs/api/public/",
+  "integration_type": "device",
+  "iot_class": "cloud_polling",
+  "requirements": [],
+  "codeowners": [],
+  "dependencies": [
+    "frontend",
+    "lovelace"
+  ]
+}
