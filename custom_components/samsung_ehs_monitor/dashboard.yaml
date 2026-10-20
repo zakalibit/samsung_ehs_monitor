@@ -5,12 +5,6 @@ views:
     path: overview
     icon: mdi:heat-pump
     cards:
-      - type: markdown
-        content: |
-          # Samsung EHS
-          Decoded water temperatures, heat output and equipment activity.
-
-          **Thermal output and COP are estimates.** Live COP uses your selected external power sensor, or Samsung power if none is selected. Daily energy/COP requires the external sensor. Seven-day COP requires a complete observed window.
       - type: entities
         title: At a glance
         show_header_toggle: false
@@ -61,11 +55,6 @@ views:
         title: Daily estimated COP
         entity: estimated_cop_today
         days_to_show: 14
-      - type: markdown
-        content: |
-          **Daily COP = accumulated net heat kWh ÷ accumulated selected-sensor electrical kWh.** Local calendar days use Home Assistant's timezone. Striped bars mark incomplete days; gaps are excluded from both totals. Check coverage before comparing days.
-
-          Daily history starts with this upgrade and retains 35 days. The chart is bundled with the plugin: no HACS cards or helpers are required. After upgrading, refresh the browser if the chart has not loaded.
       - type: entities
         title: Last 7 days · matched energy window
         show_header_toggle: false
@@ -78,13 +67,6 @@ views:
             name: Estimated 7-day COP
           - entity: performance_7d_coverage
             name: Valid data coverage
-      - type: markdown
-        content: |
-          **Seven-day COP = net heat energy ÷ electricity consumed**, both in kWh over the last 168 hours.
-
-          Totals and seven-day COP remain unknown until a complete matched window is collected. Restarts, missing/stale samples, counter resets and extended outages leave gaps; they are not filled with zeros. Coverage shows progress. The plugin cannot backfill heat history from before installation.
-
-          Live COP uses the selected Shelly/external power sensor and the latest valid Samsung heat estimate. Seven-day electricity still comes from the Samsung accumulated counter, not the selected power sensor. It is unknown at zero input, outside positive heating, or with missing/stale inputs. Use this dashboard during heating / DHW operation; cooling periods make a heating COP comparison inappropriate.
       - type: entities
         title: Compressor and circulation
         show_header_toggle: false
@@ -120,15 +102,6 @@ views:
             name: Electrical energy (reported counter)
           - entity: deltaEnergy
             name: Electrical energy difference (reported)
-      - type: markdown
-        content: |
-          **Reading the values**
-
-          Cycle data older than 15 minutes, unsupported binary IDs or invalid packets produce unknown decoded readings. API failures can make entities unavailable.
-
-          Estimated heat uses water flow × temperature rise × 0.0698. It is only calculated with a running compressor, flow ≥ 1 L/min and a positive temperature rise ≤ 20 °C. Unknown heat output is not zero.
-
-          Electrical energy is reported in kWh. The reported counter now uses the official TOTAL_INCREASING classification for Home Assistant energy statistics. The reported energy difference is not a daily or seven-day total.
   - title: Trends
     path: trends
     icon: mdi:chart-line

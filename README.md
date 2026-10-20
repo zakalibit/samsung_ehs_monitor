@@ -32,7 +32,7 @@ You can change the selected source later, or clear the field and save to return 
 
 - W values are used directly; kW values are multiplied by 1000. Live COP = estimated thermal kW × 1000 / electrical W.
 - Shelly state changes refresh electrical input and live COP immediately, without additional SmartThings API calls. Samsung thermal data is still limited by its own reporting/polling frequency, so the ratio compares current electrical input with the latest valid heat estimate; it is not a synchronized heat-meter measurement.
-- Missing, unknown, unavailable, negative, nonfinite or unsupported-unit readings yield unknown electrical input/COP. Zero power is displayed as zero, with COP unknown. Negative clamp readings are not silently converted to positive: correct clamp orientation/sign if needed.
+- Electrical input power displays 0 W for valid readings at or below zero, with COP unknown. Missing, unknown, unavailable, nonfinite or unsupported-unit readings remain unknown. Negative readings are still excluded from daily energy/COP accounting; the display clamp does not change those calculations.
 - When an external source is selected, Samsung raw power is never substituted automatically and Samsung power-report freshness is not required for live COP. Valid recent thermal packets are still required. A stable HA power state is accepted without an arbitrary age timeout; availability comes from its integration.
 - Source entity and unit are exposed as attributes of electrical input power and live COP. The same source remains configured across restarts. If the sensor is renamed or removed, reselect it in Configure.
 - Samsung raw power, electrical energy and energy difference remain available as separate diagnostic measurements.

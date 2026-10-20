@@ -11,14 +11,16 @@ def number(value):
     return isinstance(value, (int, float)) and not isinstance(value, bool) and isfinite(value)
 
 
-def electrical_watts(raw, presentation_id):
+def electrical_watts(raw, presentation_id, *, clamp_negative=False):
     """Match HA SmartThings: EHS presentation raw kW -> W; otherwise raw W."""
-    if not number(raw) or raw < 0 or not isinstance(presentation_id, str) or not presentation_id:
+    if not number(raw) or not isinstance(presentation_id, str) or not presentation_id:
         return None
+    if raw < 0:
+        return 0.0 if clamp_negative else None
     return raw * 1000 if "EHS" in presentation_id else raw
 
 
-def external_watts(state, unit):
+def external_watts(state, unit, *, clamp_negative=False):
     """Convert an HA power state to W; never reinterpret energy or clamp export."""
     if isinstance(state, bool):
         return None
@@ -26,8 +28,12 @@ def external_watts(state, unit):
         value = float(state)
     except (TypeError, ValueError):
         return None
-    if not isfinite(value) or value < 0:
+    if not isfinite(value):
         return None
+    if value < 0:
+        if not clamp_negative:
+            return None
+        value = 0.0
     if unit == "W":
         return value
     if unit == "kW":

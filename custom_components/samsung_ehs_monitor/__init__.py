@@ -49,10 +49,14 @@ class SamsungEHSCoordinator(DataUpdateCoordinator[dict]):
         if self.power_sensor:
             state = self.hass.states.get(self.power_sensor)
             watts = external_watts(state.state, state.attributes.get("unit_of_measurement")) if state else None
+            displayed_watts = external_watts(
+                state.state, state.attributes.get("unit_of_measurement"), clamp_negative=True) if state else None
             fresh = True  # HA reports availability; a stable power value may be unchanged.
         else:
             report = field(data, "main", "powerConsumptionReport", "powerConsumption") or {}
             watts = electrical_watts(report.get("power"), self.presentation_id) if isinstance(report, dict) else None
+            displayed_watts = electrical_watts(
+                report.get("power"), self.presentation_id, clamp_negative=True) if isinstance(report, dict) else None
             attribute = data.get("components", {}).get("main", {}).get("powerConsumptionReport", {}).get("powerConsumption", {})
             try:
                 timestamp = datetime.fromisoformat(attribute["timestamp"].replace("Z", "+00:00"))
@@ -60,7 +64,7 @@ class SamsungEHSCoordinator(DataUpdateCoordinator[dict]):
             except (KeyError, TypeError, ValueError):
                 fresh = False
         data.setdefault("_performance", {}).update(
-            electrical_input_power=watts,
+            electrical_input_power=displayed_watts,
             estimated_cop=instantaneous_cop(metrics.get("thermal_power"), watts) if fresh else None,
             net_thermal_power=net_heat_kw(metrics),
         )

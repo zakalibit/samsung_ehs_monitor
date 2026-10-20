@@ -101,6 +101,21 @@ class ExternalPowerTests(unittest.TestCase):
         c.refresh_live(c.data)
         self.assertIsNone(c.data["_performance"]["electrical_input_power"])
 
+    def test_negative_external_power_displays_zero_without_validating_accounting(self):
+        for value, unit in [("-100", "W"), ("-0.1", "kW")]:
+            c, _ = self.make(state=value, unit=unit)
+            c.refresh_live(c.data)
+            self.assertEqual(c.data["_performance"]["electrical_input_power"], 0)
+            self.assertIsNone(c.data["_performance"]["estimated_cop"])
+            self.assertIsNone(p.external_watts(value, unit))
+
+    def test_negative_samsung_power_displays_zero(self):
+        c, _ = self.make(selected=False)
+        c.data["components"]["main"]["powerConsumptionReport"]["powerConsumption"]["value"]["power"] = -0.1
+        c.refresh_live(c.data)
+        self.assertEqual(c.data["_performance"]["electrical_input_power"], 0)
+        self.assertIsNone(c.data["_performance"]["estimated_cop"])
+
     def test_state_event_refreshes_without_touching_window(self):
         c, states = self.make()
         c.data["_performance"] = {"estimated_cop_7d": 3.5}
