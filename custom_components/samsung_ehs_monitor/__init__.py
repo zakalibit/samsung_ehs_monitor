@@ -5,7 +5,6 @@ from datetime import datetime, timedelta, timezone
 import logging
 from pathlib import Path
 
-from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
@@ -17,6 +16,7 @@ from homeassistant.helpers.event import async_track_state_change_event, async_tr
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .daily import DailyPerformance
+from .frontend import RESOURCE_PATH, async_register_resources
 from .dashboard import async_setup_dashboard
 from .decoder import decode, field, latest
 from .performance import RollingPerformance, electrical_watts, net_heat_kw, instantaneous_cop, number, external_watts
@@ -130,10 +130,9 @@ class SamsungEHSCoordinator(DataUpdateCoordinator[dict]):
 
 async def async_setup(hass: HomeAssistant, config) -> bool:
     """Serve the bundled daily-ratio card; no HACS/resource entry required."""
-    url = "/samsung_ehs_monitor/daily-cop-card.js"
     await hass.http.async_register_static_paths([
-        StaticPathConfig(url, str(Path(__file__).parent / "frontend" / "daily-cop-card.js"), False)])
-    add_extra_js_url(hass, url + "?v=0.8.1")
+        StaticPathConfig(RESOURCE_PATH, str(Path(__file__).parent / "frontend" / "daily-cop-card.js"), False)])
+    await async_register_resources(hass)
     return True
 
 
