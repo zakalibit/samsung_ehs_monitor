@@ -4,11 +4,27 @@ Use a Shelly clamp or another Home Assistant power sensor for electrical input p
 
 ## Installation and configuration
 
-1. Extract the ZIP and replace `/config/custom_components/samsung_ehs_monitor/` with the included folder.
-2. Restart Home Assistant.
-3. Open Settings → Devices & services → Samsung EHS Monitor → Configure (the integration entry's options/gear button).
-4. Select your Shelly sensor measuring heat-pump electrical power. Select a sensor in W or kW, not a Wh/kWh energy sensor. The selector lists sensor entities with device class power. Save; the integration reloads automatically.
-5. Enable **Create Samsung EHS dashboard** and save to add the dashboard to the sidebar. Existing dashboard references for Electrical input power and Estimated COP stay the same.
+### Install with HACS
+
+Requires [HACS](https://www.hacs.dev/docs/use/) installed and configured in Home Assistant. This integration is available as a custom repository.
+
+[![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=zakalibit&repository=samsung_ehs_monitor&category=integration)
+
+1. Click **Open in HACS** above, select your Home Assistant instance, and confirm adding the repository.
+2. Download **Samsung EHS Monitor** in HACS, then restart Home Assistant.
+3. Open **Settings → Devices & services → Add integration**, search for **Samsung EHS Monitor**, enter your SmartThings access token, and select your heat pump. If already configured, keep your existing entry.
+4. Open the integration's **Configure** options, select your external power sensor if desired, and enable **Create Samsung EHS dashboard**.
+
+If the link does not work, open **HACS → ⋮ → Custom repositories**, add `https://github.com/zakalibit/samsung_ehs_monitor` with type **Integration**, then download it from HACS.
+
+HACS also handles future downloads and updates. Restart Home Assistant after installing an update and refresh your browser for frontend changes. Without GitHub releases, HACS downloads the repository's default branch.
+
+### Manual installation
+
+1. [Download the repository ZIP](https://github.com/zakalibit/samsung_ehs_monitor/archive/refs/heads/main.zip) and copy only `custom_components/samsung_ehs_monitor/` into `/config/custom_components/`, replacing the existing integration folder when upgrading.
+2. Restart Home Assistant, then add/configure the integration as described above.
+
+Select a power sensor in **W** or **kW**, not a Wh/kWh energy sensor. The selector lists sensors with device class power. Saving options reloads the integration automatically. Existing entity IDs and dashboard references are retained.
 
 You can change the selected source later, or clear the field and save to return to Samsung API power. The selected entity must already exist and declare W/kW units; unavailable numeric states are allowed after selection. Sensors from Samsung EHS Monitor itself are rejected to prevent direct feedback loops.
 
