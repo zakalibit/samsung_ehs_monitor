@@ -11,6 +11,7 @@ class DailyPerformance:
         saved = saved or {}
         self.days = saved.get("days", {}) if saved.get("zone") == zone and saved.get("source") == source else {}
         self.previous = None  # Restart time is not measured time.
+        self.replayed = []
 
     def boundary(self, day):
         start = datetime.combine(day, time.min, self.zone)
@@ -43,6 +44,31 @@ class DailyPerformance:
         self.previous = (now, heat, watts, valid_until) if valid and watts >= 0 and valid_until > now and self.source else None
         cutoff = (datetime.fromtimestamp(now, self.zone).date() - timedelta(days=34)).isoformat()
         self.days = {day: value for day, value in self.days.items() if day >= cutoff}
+
+    def replay(self, now, intervals):
+        """Replace this session's mutable 30-minute tail without double counting."""
+        cutoff = now - 1800
+        for a, b, heat, watts in self.replayed:
+            self._apply(max(a, cutoff), b, heat, watts, -1)
+        for a, b, heat, watts in intervals:
+            self._apply(a, b, heat, watts, 1)
+        self.replayed = list(intervals)
+        oldest = (datetime.fromtimestamp(now, self.zone).date() - timedelta(days=34)).isoformat()
+        self.days = {day: row for day, row in self.days.items() if day >= oldest}
+
+    def _apply(self, start, end, heat, watts, sign):
+        while start < end:
+            day = datetime.fromtimestamp(start, self.zone).date()
+            _, midnight = self.boundary(day)
+            stop = min(end, midnight)
+            seconds = (stop - start) * sign
+            row = self.days.setdefault(day.isoformat(), {"heat": 0.0, "electricity": 0.0, "seconds": 0.0})
+            row["heat"] += heat * seconds / 3600
+            row["electricity"] += watts * seconds / 3600000
+            row["seconds"] += seconds
+            if abs(row["seconds"]) < 1e-6:
+                row.update(heat=0.0, electricity=0.0, seconds=0.0)
+            start = stop
 
     def history(self, now):
         today = datetime.fromtimestamp(now, self.zone).date().isoformat()

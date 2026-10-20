@@ -42,7 +42,7 @@ You can change the selected source later, or clear the field and save to return 
 
 This option replaces instantaneous electricity measurement only. Seven-day electricity continues to use differences of Samsung's accumulated Wh counter, converted to kWh. It does NOT integrate the chosen Shelly power sensor into seven-day electricity. Existing stored seven-day data is not mixed with a different source.
 
-The existing rolling 168-hour algorithm integrates signed thermal power (including negative heat during defrost) and matches it with electricity counter differences between valid polls. Data gaps, stale readings, resets and restart downtime are not filled with zero. Complete valid coverage is required before publishing seven-day heat, electricity and COP values. Coverage indicates progress; missing/off-state cycle reports can delay completeness. Earlier thermal history is not backfilled. Boundary energy is interpolated within polling intervals; reporting delays and five-minute thermal samples affect accuracy.
+The rolling 168-hour algorithm integrates signed thermal snapshots (including negative heat during defrost) and matches them with electricity counter differences at the counter report timestamps. Data gaps, stale readings, resets and restart downtime are not filled with zero. Complete valid coverage is required before publishing seven-day heat, electricity and COP values. Coverage indicates progress; missing/off-state cycle reports can delay completeness. Earlier thermal history is not backfilled. Boundary energy is interpolated within accounted counter intervals; reporting delays and five-minute thermal samples affect accuracy.
 
 Water heat uses 0.0698 × flow L/min × (flow − return °C), assuming mostly water. Fresh off-compressor samples yield zero net heat; residual heat with the compressor stopped is omitted. Use for heating/DHW, not a window containing cooling. This is estimated heat entering the water circuit, not certified energy reaching the rooms. The selected clamp should cover the electrical loads you want the COP to include (for example, compressor plus associated pumps/backup heater).
 
@@ -54,7 +54,7 @@ For an automatically installed dashboard, enable **Create Samsung EHS dashboard*
 
 ## Verification
 
-49 automated tests pass, including dashboard registry resolution, renaming, missing/disabled sensors, path collisions, multiple heat pumps, unload/reload and opt-out behavior. Existing coverage includes: original decoder, seven-day accounting, external W/kW conversion, invalid/unavailable/zero values, Samsung-zero override, state-event refresh without changing seven-day accounting, fallback when no source is selected, options save/clear and self-reference/unit validation. Coordinator/options tests use lightweight HA stubs, not a live Home Assistant instance. Python/JSON syntax and dashboard YAML are checked. Live installation and Shelly verification remain required.
+58 automated tests pass, including dashboard registry resolution, renaming, missing/disabled sensors, path collisions, multiple heat pumps, unload/reload and opt-out behavior. Existing coverage includes: original decoder, seven-day accounting, external W/kW conversion, invalid/unavailable/zero values, Samsung-zero override, state-event refresh without changing seven-day accounting, fallback when no source is selected, options save/clear and self-reference/unit validation. Coordinator/options tests use lightweight HA stubs, not a live Home Assistant instance. Python/JSON syntax and dashboard YAML are checked. Live installation and Shelly verification remain required.
 
 ## References
 
@@ -82,3 +82,11 @@ Daily history starts on installation; earlier days are not backfilled. No full-d
 ## Dashboard logs
 
 The **Logs** tab shows the latest 100 API status/metadata request and cycle parsing failures, newest first, with UTC timestamps. It records HTTP/authentication and network errors, invalid JSON/status structures, unsupported binary IDs, missing/malformed cycle packets, and stale/invalid timestamps. Messages exclude tokens and raw payloads. The failure log sensor stays available during polling failures and excludes its entries from Recorder. The in-memory list clears on restart or integration reload. Failures before the integration finishes initial setup remain in Home Assistant’s system logs. Zero compressor frequency is normal operation and is not a parsing failure.
+
+## Timestamped cycle snapshots
+
+All timestamped indoor/outdoor cycle records in each response are sorted and deduplicated by source timestamp. Live sensors use the newest valid record in the response, falling back past malformed or missing packets while enforcing the 15-minute freshness limit. Valid zero values are retained. Historical heat pairs each indoor record with the latest outdoor record at or before that time (and vice versa); it never pairs an older sample with a future one. Packets still expire after 15 minutes.
+
+Daily energy/COP revises the most recent 30 minutes when delayed snapshots arrive. Heat is held between snapshot timestamps and paired with the external electrical power changes actually observed by this integration. Repeated API batches do not add energy twice. No electrical history is invented before setup/reload, and gaps longer than three minutes in observed updates remain excluded. Revisions can adjust recent daily totals, including across local midnight. Older totals are finalized and retained.
+
+Seven-day accounting uses all available thermal snapshots between successive Samsung electricity-counter timestamps. Repeated counter reports are ignored. The counter window must have complete thermal coverage; external power is still used only for daily and live COP. This improves energy accounting but does not synchronize live COP with a faster electrical meter or recover snapshots that Samsung no longer returns.

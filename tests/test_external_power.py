@@ -1,5 +1,6 @@
 """Exercise production calculations, coordinator and options with lightweight HA stubs."""
 import ast
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import importlib.util
 from pathlib import Path
@@ -44,12 +45,19 @@ def production_class(filename, name, scope):
     return scope[name]
 
 
+snapshot_scope = dict(deepcopy=deepcopy, datetime=datetime, timezone=timezone,
+                      BINARY_ID=d.BINARY_ID, MAX_AGE_SECONDS=d.MAX_AGE_SECONDS,
+                      WINDOW=1800, decode=d.decode, field=d.field, record_time=d.record_time,
+                      net_heat_kw=p.net_heat_kw)
+Snapshots = production_class("snapshots.py", "SnapshotHistory", snapshot_scope)
+
+
 scope = dict(DataUpdateCoordinator=CoordinatorStub, callback=lambda f: f,
              datetime=datetime, timedelta=timedelta, timezone=timezone,
              HomeAssistant=object, ConfigEntry=object, LOGGER=Mock(),
              DEFAULT_SCAN_INTERVAL=300, CONF_DEVICE_ID="device_id",
              CONF_TOKEN="token", CONF_POWER_SENSOR="power_sensor", DOMAIN="samsung_ehs_monitor",
-             RollingPerformance=p.RollingPerformance, DailyPerformance=daily.DailyPerformance, latest=d.latest,
+             SnapshotHistory=Snapshots, RollingPerformance=p.RollingPerformance, DailyPerformance=daily.DailyPerformance, latest=d.latest,
              Store=lambda *a: None, SmartThingsClient=lambda *a: None,
              async_get_clientsession=lambda h: None,
              decode=lambda data, now: data["metrics"], field=d.field,

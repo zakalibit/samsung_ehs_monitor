@@ -16,6 +16,7 @@ from homeassistant.helpers.event import async_track_state_change_event, async_tr
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .daily import DailyPerformance
+from .snapshots import SnapshotHistory
 from .frontend import RESOURCE_PATH, async_register_resources
 from .dashboard import async_setup_dashboard
 from .decoder import decode, field, latest, cycle_errors
@@ -37,6 +38,7 @@ class SamsungEHSCoordinator(DataUpdateCoordinator[dict]):
         self.power_sensor = entry.options.get(CONF_POWER_SENSOR)
         self.presentation_id = None
         self.diagnostic_entries = []
+        self.snapshots = SnapshotHistory()
         self.performance = RollingPerformance()
         self.daily = DailyPerformance(hass.config.time_zone, self.power_sensor)
         self.daily_store = Store(hass, 1, f"{DOMAIN}_{entry.entry_id}_daily")
@@ -79,15 +81,9 @@ class SamsungEHSCoordinator(DataUpdateCoordinator[dict]):
             net_thermal_power=net_heat_kw(metrics),
         )
 
-        # Daily ratios use only external measured power; Samsung seven-day accounting stays separate.
-        expiry = None
-        if self.power_sensor:
-            try:
-                expiry = min(datetime.fromisoformat(latest(data, kind)["timestamp"].replace("Z", "+00:00")).timestamp()
-                             for kind in ("indoor", "outdoor")) + 900
-            except (TypeError, KeyError, ValueError):
-                pass
-        self.daily.advance(now.timestamp(), net_heat_kw(metrics), watts if self.power_sensor else None, expiry)
+        # Replay delayed cycle packets only against power actually observed here.
+        self.snapshots.sample(now.timestamp(), watts if self.power_sensor else None)
+        self.daily.replay(now.timestamp(), self.snapshots.intervals(now.timestamp()))
         data["_performance"].update(self.daily.values(now.timestamp()))
 
     @callback
@@ -96,7 +92,8 @@ class SamsungEHSCoordinator(DataUpdateCoordinator[dict]):
             if self.last_update_success:
                 self.refresh_live(self.data, now)
             else:
-                self.daily.advance(now.timestamp(), None, None, None)
+                self.snapshots.sample(now.timestamp(), None, available=False)
+                self.daily.replay(now.timestamp(), self.snapshots.intervals(now.timestamp()))
                 self.data.setdefault("_performance", {}).update(self.daily.values(now.timestamp()))
             self.daily_store.async_delay_save(self.daily.saved, 10)
             self.async_update_listeners()
@@ -112,6 +109,7 @@ class SamsungEHSCoordinator(DataUpdateCoordinator[dict]):
         try:
             data = await self.client.status(self.device_id)
             now = datetime.now(timezone.utc)
+            self.snapshots.ingest(data, now.timestamp())
             for message in cycle_errors(data, now):
                 self.record_failure("Parsing", message)
             metrics = decode(data, now)
@@ -129,8 +127,15 @@ class SamsungEHSCoordinator(DataUpdateCoordinator[dict]):
                 fresh = 0 <= (now - timestamp).total_seconds() <= 900
             except (KeyError, TypeError, ValueError):
                 fresh = False
-            data["_performance"] = self.performance.update(
-                now.timestamp(), heat, counter if fresh else None)
+            if fresh:
+                counter_time = timestamp.timestamp()
+                previous = self.performance.previous
+                intervals = self.snapshots.heat_intervals(previous[0], counter_time) if previous and counter_time > previous[0] else []
+                self.performance.update(counter_time, self.snapshots.heat_at(counter_time), counter,
+                                        heat_intervals=intervals)
+            else:
+                self.performance.previous = None
+            data["_performance"] = self.performance.values(now.timestamp())
             self.refresh_live(data, now)
             self.store.async_delay_save(self.performance.saved, 30)
             return data

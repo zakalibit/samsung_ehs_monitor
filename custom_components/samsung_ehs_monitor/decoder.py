@@ -15,11 +15,20 @@ def field(data: dict, component: str, capability: str, attribute: str):
     return (((data.get("components") or {}).get(component) or {}).get(capability) or {}).get(attribute, {}).get("value")
 
 
+def record_time(record):
+    try:
+        value = datetime.fromisoformat(record["timestamp"].replace("Z", "+00:00"))
+        return value.timestamp() if value.tzinfo is not None else None
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return None
+
+
 def latest(data: dict, kind: str):
     values = field(data, "main", "samsungce.ehsCycleData", kind)
-    if not isinstance(values, list) or not values:
+    if not isinstance(values, list):
         return None
-    return values[-1] if isinstance(values[-1], dict) else None
+    records = [row for row in values if isinstance(row, dict)]
+    return max(records, key=lambda row: record_time(row) or float("-inf"), default=None)
 
 
 def parse_payload(record, length: int, now=None):
@@ -38,8 +47,22 @@ def parse_payload(record, length: int, now=None):
         if not 0 <= age <= MAX_AGE_SECONDS:
             return None
         return packet
-    except (TypeError, KeyError, ValueError):
+    except (TypeError, KeyError, ValueError, AttributeError):
         return None
+
+
+def latest_valid_payload(data, kind, length, now=None):
+    """Use the freshest usable packet; zero readings are valid values."""
+    records = field(data, "main", "samsungce.ehsCycleData", kind)
+    if not isinstance(records, list):
+        return None
+    records = sorted((row for row in records if isinstance(row, dict)),
+                     key=lambda row: record_time(row) or float("-inf"), reverse=True)
+    for record in records:
+        packet = parse_payload(record, length, now)
+        if packet is not None:
+            return packet
+    return None
 
 
 def cycle_errors(data: dict, now=None) -> list[str]:
@@ -74,8 +97,8 @@ def decode(data: dict, now=None) -> dict:
     )}
     if binary_id != BINARY_ID:
         return result
-    inside = parse_payload(latest(data, "indoor"), 31, now)
-    outside = parse_payload(latest(data, "outdoor"), 28, now)
+    inside = latest_valid_payload(data, "indoor", 31, now)
+    outside = latest_valid_payload(data, "outdoor", 28, now)
     if inside is not None:
         result.update(
             water_return_temperature=inside[2] - 55,

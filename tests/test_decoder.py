@@ -40,6 +40,33 @@ class DecoderTests(unittest.TestCase):
         values = decoder.decode(sample(), datetime(2026,10,19,9,30,tzinfo=timezone.utc))
         self.assertTrue(all(x is None for x in values.values()))
 
+    def test_falls_back_to_recent_valid_packets(self):
+        for invalid in (None, '', 'bad', '00'):
+            data = sample()
+            cycles = data['components']['main']['samsungce.ehsCycleData']
+            for kind in ('indoor', 'outdoor'):
+                cycles[kind]['value'].append({'timestamp': '2026-10-19T09:03:00Z', 'data': invalid})
+            self.assertEqual(decoder.decode(data, self.now), decoder.decode(sample(), self.now))
+            self.assertTrue(decoder.cycle_errors(data, self.now))
+
+    def test_fallback_does_not_reuse_expired_values(self):
+        data = sample()
+        cycles = data['components']['main']['samsungce.ehsCycleData']
+        for kind in ('indoor', 'outdoor'):
+            cycles[kind]['value'].append({'timestamp': '2026-10-19T09:29:00Z', 'data': None})
+        values = decoder.decode(data, datetime(2026, 10, 19, 9, 30, tzinfo=timezone.utc))
+        self.assertTrue(all(value is None for value in values.values()))
+
+    def test_newer_valid_zero_is_not_replaced_with_older_positive_value(self):
+        data = sample()
+        records = data['components']['main']['samsungce.ehsCycleData']['outdoor']['value']
+        older = dict(records[0])
+        packet = bytearray.fromhex(older['data'])
+        packet[0:2] = (40).to_bytes(2, 'big')
+        older.update(timestamp='2026-10-19T09:00:00Z', data=packet.hex())
+        records.append(older)  # Older record deliberately appears last.
+        self.assertEqual(decoder.decode(data, self.now)['compressor_frequency'], 0)
+
     def test_unknown_firmware(self):
         data = sample()
         data['components']['main']['samsungce.deviceIdentification']['binaryId']['value'] = 'UNKNOWN'

@@ -75,7 +75,9 @@ class RollingPerformance:
         self.rows = (saved or {}).get("rows", [])
         self.previous = None  # Never integrate unobserved time across a restart.
 
-    def update(self, now, heat, counter_kwh):
+    def update(self, now, heat, counter_kwh, *, heat_intervals=None):
+        if self.previous is not None and now <= self.previous[0]:
+            return self.values(now)  # Repeated/out-of-order counter report.
         valid = number(heat) and number(counter_kwh) and counter_kwh >= 0
         if valid and self.previous is not None:
             before, old_heat, old_counter = self.previous
@@ -83,7 +85,11 @@ class RollingPerformance:
             delta = counter_kwh - old_counter
             if 0 < dt <= MAX_GAP and delta >= 0:
                 # Trapezoid on signed thermal samples; counter difference on electricity.
-                self.rows.append([before, now, (old_heat + heat) / 2 * dt / 3600, delta])
+                if heat_intervals is None:
+                    self.rows.append([before, now, (old_heat + heat) / 2 * dt / 3600, delta])
+                elif abs(sum(b-a for a, b, q in heat_intervals) - dt) < 0.001:
+                    thermal_kwh = sum(q * (b-a) / 3600 for a, b, q in heat_intervals)
+                    self.rows.append([before, now, thermal_kwh, delta])
         self.previous = (now, heat, counter_kwh) if valid else None
         self.rows = [r for r in self.rows if r[1] > now - WEEK]
         return self.values(now)
