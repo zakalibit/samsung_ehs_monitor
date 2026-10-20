@@ -114,6 +114,7 @@ class SamsungEHSFlowReturnRow extends HTMLElement {
       <ha-icon icon="mdi:thermometer-water"></ha-icon>
       <span class="name"></span><span class="values"></span>`;
     this.shadowRoot.querySelector('.name').textContent = config.name || 'Flow/Return';
+    this.shadowRoot.querySelector('ha-icon').setAttribute('icon', config.icon || 'mdi:thermometer-water');
   }
 
   set hass(hass) {

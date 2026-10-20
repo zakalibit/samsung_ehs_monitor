@@ -13,6 +13,11 @@ views:
             entity: water_flow_temperature
             return_entity: water_return_temperature
             name: Flow/Return
+          - type: custom:samsung-ehs-flow-return-row
+            entity: room_temperature
+            return_entity: cooling_setpoint
+            name: Indoor actual/requested
+            icon: mdi:home-thermometer
           - entity: outdoor_temperature
             name: Outdoors
             icon: mdi:thermometer
