@@ -441,6 +441,26 @@ function samsungEHSLastSample(samples, time) {
   return samples[left-1];
 }
 
+function samsungEHSRoundBarCaps(series, hidden) {
+  // Match HA Energy: 4 px on the outer positive/negative cap only. All of our
+  // series already share hourly buckets, so no zero-filling is needed here.
+  const caps = new Set();
+  for (let index=series.length-1; index>=0; index--) {
+    const dataset = series[index];
+    dataset.data = dataset.data.map(point => {
+      const value = point.value ?? point;
+      const amount = value[1];
+      const key = `${dataset.stack ?? dataset.id}:${value[0]}:${amount < 0 ? 'negative' : 'positive'}`;
+      let radius = [0,0,0,0];
+      if (!hidden.has(dataset.id) && amount !== null && amount !== 0 && !caps.has(key)) {
+        radius = amount < 0 ? [0,0,4,4] : [4,4,0,0];
+        caps.add(key);
+      }
+      return {value,itemStyle:{borderRadius:radius,...(amount === 0 ? {borderWidth:0} : {})}};
+    });
+  }
+}
+
 class SamsungEHSHistoryBarCard extends HTMLElement {
   setConfig(config) {
     if (!Array.isArray(config.entities) || !config.entities.length
@@ -538,7 +558,7 @@ class SamsungEHSHistoryBarCard extends HTMLElement {
       stack:this.config.stacked === false ? undefined : 'readings',
       color:style.getPropertyValue(`--graph-color-${index+1}`).trim()
         || style.getPropertyValue(`--color-${index+1}`).trim() || fallback[index%fallback.length],
-      barMaxWidth:40, barMinWidth:1,
+      barMaxWidth:50, cursor:'default',
       // One time-weighted mean per hour, aligned across all series.
       data:series.samples.map(point => [point.time,point.value]),
     }));
@@ -547,34 +567,48 @@ class SamsungEHSHistoryBarCard extends HTMLElement {
       this._chart = document.createElement('ha-chart-base');
       this._chart.height = '280px';
       this._chart.setAttribute('chart-type','bar');
-      this._chart.addEventListener('dataset-hidden', event => this._hidden.add(event.detail.id));
-      this._chart.addEventListener('dataset-unhidden', event => this._hidden.delete(event.detail.id));
+      this._chart.addEventListener('dataset-hidden', event => {
+        this._hidden.add(event.detail.id); this._updateBarCaps();
+      });
+      this._chart.addEventListener('dataset-unhidden', event => {
+        this._hidden.delete(event.detail.id); this._updateBarCaps();
+      });
     }
     this._chart.hass = this._hass;
+    const language = this._hass.locale?.language || this._hass.language;
+    const timeZone = this._hass.config?.time_zone;
+    const axisClock = new Intl.DateTimeFormat(language, {timeZone,hour:'2-digit',minute:'2-digit'});
+    const axisDate = new Intl.DateTimeFormat(language, {timeZone,month:'short',day:'numeric'});
     this._chart.options = {
       animation:false,
-      xAxis:{type:'time',min:new Date(this._today ? this._start : Math.floor(this._start/3600000)*3600000),max:new Date(this._end)},
+      xAxis:{type:'time',min:new Date(this._today ? this._start : Math.floor(this._start/3600000)*3600000),max:new Date(this._end),
+        axisLabel:this._today ? {showMinLabel:true,formatter:(value,index) =>
+          `${index === 0 ? axisDate.format(new Date(this._start))+'\n' : ''}${axisClock.format(new Date(value))}`} : undefined},
       yAxis:{type:'value',name:units.size === 1 ? this._history[0].unit : '', splitLine:{show:true}},
       grid:{left:1,right:1,top:25,bottom:0,containLabel:true},
       legend:{type:'custom',data:this._series.map(series => ({id:series.id,name:series.name}))},
       tooltip:{trigger:'axis',renderMode:'html',confine:true,axisPointer:{type:'shadow',snap:true},
         formatter:params => this._tooltip(params)},
     };
-    this._chart.data = this._series;
+    this._updateBarCaps();
     if (!this._chart.parentNode) this._plot.append(this._chart);
+  }
+  _updateBarCaps() {
+    samsungEHSRoundBarCaps(this._series,this._hidden);
+    this._chart.data = [...this._series];
   }
   _tooltip(params) {
     const items = Array.isArray(params) ? params : [params];
     const time = Number(items[0]?.axisValue ?? items[0]?.value?.[0]);
     if (!Number.isFinite(time)) return null;
     const language = this._hass.locale?.language || this._hass.language;
-    const timeZone = this._hass.locale?.time_zone === 'local' ? undefined : this._hass.config?.time_zone;
-    const clock = new Intl.DateTimeFormat(language, {timeZone,month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    const timeZone = this._today || this._hass.locale?.time_zone !== 'local' ? this._hass.config?.time_zone : undefined;
+    const clock = new Intl.DateTimeFormat(language, {timeZone,...(this._today ? {} : {month:'short',day:'numeric'}),hour:'2-digit',minute:'2-digit'});
     const number = new Intl.NumberFormat(language, {maximumFractionDigits:4});
     const body = document.createElement('div');
     body.style.maxWidth = '300px';
     const title = document.createElement('div');
-    title.textContent = `${clock.format(new Date(time))} – ${clock.format(new Date(Math.min(time+3600000,this._end)))} · hourly average`;
+    title.textContent = `${clock.format(new Date(time))} – ${clock.format(new Date(Math.min(time+3600000,this._end)))} · average`;
     title.style.fontWeight = 'bold';
     body.append(title);
     let count = 0;

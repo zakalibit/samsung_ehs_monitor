@@ -215,14 +215,14 @@ assert.equal(bars._chart.options.tooltip.trigger,'axis');
 assert.equal(bars._chart.data.length,2);
 assert(bars._chart.data.every(series=>series.type === 'bar' && series.stack === 'readings'));
 for (let index=0; index<2; index++) {
-  assert.deepEqual(Array.from(bars._chart.data[index].data,point=>Array.from(point)),
+  assert.deepEqual(Array.from(bars._chart.data[index].data,point=>Array.from(point.value)),
     Array.from(bars._history[index].samples,point=>[point.time,point.value]));
 }
-assert(bars._chart.data[0].data.some(point=>point[1]!==null));
-assert(bars._chart.data[0].data.some(point=>point[1]===null));
+assert(bars._chart.data[0].data.some(point=>point.value[1]!==null));
+assert(bars._chart.data[0].data.some(point=>point.value[1]===null));
 assert.notEqual(bars._chart.data[0].color,bars._chart.data[1].color);
-assert.deepEqual(Array.from(bars._chart.data[0].data,point=>point[0]),
-  Array.from(bars._chart.data[1].data,point=>point[0]));
+assert.deepEqual(Array.from(bars._chart.data[0].data,point=>point.value[0]),
+  Array.from(bars._chart.data[1].data,point=>point.value[0]));
 assert(bars._chart.data.every(series=>series.sampling === undefined));
 bars.hass = bars._hass;
 assert.equal(requests,1); // State refreshes do not refetch the full history.
@@ -231,7 +231,14 @@ const tip=bars._chart.options.tooltip.formatter([{axisValue:hover}]);
 assert(flatten(tip).some(node=>node.textContent?.includes('Power: ') && node.textContent.includes('kW')));
 assert(flatten(tip).some(node=>node.textContent?.includes('Heat: 4 kW')));
 assert(flatten(tip).some(node=>node.tag==='ha-chart-tooltip-marker'));
-assert(flatten(tip).some(node=>node.textContent?.includes('hourly average')));
+const tipHeading=tip.children[0].textContent;
+assert(tipHeading.endsWith(' · average'));
+const tooltipClock=new Intl.DateTimeFormat('en',{hour:'2-digit',minute:'2-digit'});
+assert.equal(tipHeading,`${tooltipClock.format(new Date(hover))} – ${tooltipClock.format(new Date(Math.min(hover+3600000,bars._end)))} · average`);
+const firstTick=bars._chart.options.xAxis.axisLabel.formatter(bars._start,0);
+const laterTick=bars._chart.options.xAxis.axisLabel.formatter(bars._start+3600000,1);
+assert(firstTick.includes('\n'));
+assert(!laterTick.includes('\n'));
 bars._chart.handlers['dataset-hidden']({detail:{id:'sensor.heat'}});
 const hiddenTip=bars._tooltip([{axisValue:hover}]);
 assert(!flatten(hiddenTip).some(node=>node.textContent?.includes('Heat:')));
@@ -306,3 +313,30 @@ const offsetMidnight=Date.parse('2026-10-20T18:30:00Z');
 const offsetHours=hourly([{time:offsetMidnight,value:3}],offsetMidnight,offsetMidnight+hour*2,offsetMidnight);
 assert.equal(offsetHours[0].time,offsetMidnight);
 assert.equal(offsetHours[1].time,offsetMidnight+hour);
+
+const rounded = [
+  {id:'power',stack:'readings',data:[[0,2],[1,-2],[2,3],[3,0]]},
+  {id:'heat',stack:'readings',data:[[0,4],[1,-4],[2,null],[3,0]]},
+];
+const roundCaps=context.samsungEHSRoundBarCaps;
+const radius=(series,index)=>Array.from(series.data[index].itemStyle.borderRadius);
+roundCaps(rounded,new Set());
+assert.deepEqual(radius(rounded[0],0),[0,0,0,0]);
+assert.deepEqual(radius(rounded[1],0),[4,4,0,0]);
+assert.deepEqual(radius(rounded[0],1),[0,0,0,0]);
+assert.deepEqual(radius(rounded[1],1),[0,0,4,4]);
+assert.deepEqual(radius(rounded[0],2),[4,4,0,0]);
+assert.deepEqual(radius(rounded[1],2),[0,0,0,0]);
+assert.equal(rounded[0].data[3].itemStyle.borderWidth,0);
+roundCaps(rounded,new Set(['heat']));
+assert.deepEqual(radius(rounded[0],0),[4,4,0,0]);
+assert.deepEqual(radius(rounded[0],1),[0,0,4,4]);
+roundCaps(rounded,new Set());
+assert.deepEqual(radius(rounded[0],0),[0,0,0,0]);
+assert.deepEqual(radius(rounded[1],0),[4,4,0,0]);
+const separate=[{id:'one',data:[[0,1]]},{id:'two',data:[[0,-2]]}];
+roundCaps(separate,new Set());
+assert.deepEqual(radius(separate[0],0),[4,4,0,0]);
+assert.deepEqual(radius(separate[1],0),[0,0,4,4]);
+assert(bars._chart.data.every(series=>series.barMaxWidth===50));
+console.log('Energy-style caps: positive/negative stack ends, gaps, zero and legend changes passed');
