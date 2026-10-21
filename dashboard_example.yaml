@@ -108,6 +108,8 @@ views:
             name: Indoor
           - entity: sensor.samsung_ehs_monitor_cooling_setpoint
             name: Target
+          - entity: sensor.samsung_ehs_monitor_discharge_gas_temperature
+            name: Compressor discharge gas
       - type: history-graph
         title: Estimated heat output · 24 hours
         hours_to_show: 24
