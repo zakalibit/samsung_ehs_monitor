@@ -91,13 +91,19 @@ views:
           - entity: estimated_cop_7d
             name: Estimated 7-day COP
       - type: history-graph
-        title: Water temperatures · 24 hours
+        title: Temperatures 24 hours
         hours_to_show: 24
         entities:
           - entity: water_flow_temperature
             name: Flow / outlet
           - entity: water_return_temperature
             name: Return / inlet
+          - entity: outdoor_temperature
+            name: Outdoor
+          - entity: room_temperature
+            name: Indoor
+          - entity: cooling_setpoint
+            name: Target
       - type: history-graph
         title: Estimated heat output · 24 hours
         hours_to_show: 24
