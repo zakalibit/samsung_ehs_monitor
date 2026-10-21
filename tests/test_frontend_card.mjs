@@ -180,7 +180,7 @@ const raw = [
   {s:'-2',lu:(now-1000)/1000}, {s:'0',lu:now/1000},
   {s:'unavailable',lu:(now-500)/1000}, {s:'NaN',lu:(now-400)/1000},
   {state:'3',last_updated:new Date(now-2500).toISOString()},
-  {s:'99',lu:(start-1)/1000}, {s:'99',lu:(now+3600000)/1000}, null,
+  {s:'99',lu:(now+3600000)/1000}, null,
 ];
 const parsed = rawSamples(raw,start,now);
 assert.deepEqual(Array.from(parsed.filter(row=>row.value!==null),row=>row.value),[1,3,9,-2,0]);
@@ -205,34 +205,36 @@ assert.equal(request.type,'history/history_during_period');
 assert.equal(request.include_start_time_state,true);
 assert.equal(request.period,undefined);
 assert.equal(request.statistic_ids,undefined);
-assert.equal(bars._history[0].samples.filter(row=>row.value!==null).length,5);
+const hourly=context.samsungEHSHourlySamples;
+assert.equal(bars._history[0].samples.length,Math.ceil(bars._end/3600000)-Math.floor(bars._start/3600000));
+assert(bars._info.textContent.includes('Hourly averages'));
 assert.equal(bars._chart.tag,'ha-chart-base');
 assert.equal(bars._chart.options.tooltip.trigger,'axis');
 assert.equal(bars._chart.data.length,2);
 assert(bars._chart.data.every(series=>series.type === 'bar' && series.stack === 'readings'));
-assert.equal(bars._chart.data[0].data[0][1],1);
-assert.equal(bars._chart.data[1].data[0][1],4);
-assert.equal(bars._chart.data[1].data.at(-1)[1],4);
-assert.equal(bars._chart.data[1].data.at(-1)[2],now-3000); // Original reading timestamp is retained.
-assert(bars._chart.data[0].data.some(point=>point[1] === 9)); // The peak is never averaged away.
-assert(bars._chart.data[0].data.some(point=>point[1] === -2));
-assert(bars._chart.data[0].data.some(point=>point[1] === 0));
+for (let index=0; index<2; index++) {
+  assert.deepEqual(Array.from(bars._chart.data[index].data,point=>Array.from(point)),
+    Array.from(bars._history[index].samples,point=>[point.time,point.value]));
+}
+assert(bars._chart.data[0].data.some(point=>point[1]!==null));
+assert(bars._chart.data[0].data.some(point=>point[1]===null));
 assert.notEqual(bars._chart.data[0].color,bars._chart.data[1].color);
 assert.deepEqual(Array.from(bars._chart.data[0].data,point=>point[0]),
   Array.from(bars._chart.data[1].data,point=>point[0]));
 assert(bars._chart.data.every(series=>series.sampling === undefined));
 bars.hass = bars._hass;
 assert.equal(requests,1); // State refreshes do not refetch the full history.
-const tip=bars._chart.options.tooltip.formatter([{axisValue:now}]);
-assert(flatten(tip).some(node=>node.textContent?.includes('Power: 0 kW')));
+const hover=bars._history[0].samples.find(point=>point.value!==null).time;
+const tip=bars._chart.options.tooltip.formatter([{axisValue:hover}]);
+assert(flatten(tip).some(node=>node.textContent?.includes('Power: ') && node.textContent.includes('kW')));
 assert(flatten(tip).some(node=>node.textContent?.includes('Heat: 4 kW')));
 assert(flatten(tip).some(node=>node.tag==='ha-chart-tooltip-marker'));
-assert(flatten(tip).some(node=>node.textContent?.startsWith('Recorded ')));
+assert(flatten(tip).some(node=>node.textContent?.includes('hourly average')));
 bars._chart.handlers['dataset-hidden']({detail:{id:'sensor.heat'}});
-const hiddenTip=bars._tooltip([{axisValue:now}]);
+const hiddenTip=bars._tooltip([{axisValue:hover}]);
 assert(!flatten(hiddenTip).some(node=>node.textContent?.includes('Heat:')));
 bars._chart.handlers['dataset-unhidden']({detail:{id:'sensor.heat'}});
-const unavailableTip=bars._tooltip([{axisValue:now-500}]);
+const unavailableTip=bars._tooltip([{axisValue:bars._history[0].samples[0].time}]);
 assert(flatten(unavailableTip).some(node=>node.textContent?.includes('Power: unavailable')));
 bars.connectedCallback();
 assert.equal(timers.size,1);
@@ -258,23 +260,26 @@ staleBars.disconnectedCallback();
 resolveHistory({'sensor.power':raw});
 await pendingHistory;
 assert.equal(staleBars._history,null);
-console.log('Raw-history bars: exact values/timestamps, zero/negative/missing values, shared chart, refresh cleanup and failures passed');
+console.log('Hourly-history bars: native renderer, aligned means, shared tooltip, refresh cleanup and failures passed');
 
-const alignedDuplicate = context.samsungEHSAlignHistory([
-  {samples:[{time:1,value:10},{time:1,value:20},{time:3,value:30}]},
-  {samples:[{time:1,value:5},{time:2,value:6}]},
-]);
-assert.deepEqual(Array.from(alignedDuplicate[0],p=>Array.from(p)),[[1,10,1],[1,20,1],[2,20,1],[3,30,3]]);
-assert.deepEqual(Array.from(alignedDuplicate[1],p=>Array.from(p)),[[1,5,1],[1,5,1],[2,6,2],[3,6,2]]);
-assert.equal(context.samsungEHSLastSample([{time:1,value:4},{time:3,value:null}],2).value,4);
-assert.equal(context.samsungEHSLastSample([{time:1,value:4},{time:3,value:null}],3).value,null);
-assert.equal(context.samsungEHSLastSample([{time:1,value:4}],0),undefined);
-console.log('Native HA stacked bars: module loading, timestamp alignment, colored shared tooltip and legend filtering passed');
-
-const alignedUnknown=context.samsungEHSAlignHistory([
-  {samples:[{time:1,value:5},{time:3,value:null}]},
-  {samples:[{time:2,value:8},{time:4,value:9}]},
-]);
-assert.equal(alignedUnknown[1][0][1],null); // No state is invented before the first reading.
-assert.equal(alignedUnknown[0].at(-1)[1],null); // Unknown breaks a held value.
-console.log('Stacked states retain original readings and stop holds at unknown states');
+const hour=3600000;
+const means=(samples,start,end)=>Array.from(hourly(samples,start,end),p=>p.value);
+// Uneven reporting must not bias the mean: 10 for 45 minutes, 2 for 15.
+assert.deepEqual(means([{time:0,value:10},{time:hour*.75,value:2}],0,hour),[8]);
+// A state crossing hour boundaries contributes to each hour; signed values and zero remain valid.
+assert.deepEqual(means([{time:0,value:4},{time:hour*1.5,value:-4}],0,hour*3),[4,0,-4]);
+assert.deepEqual(means([{time:0,value:0}],0,hour),[0]);
+// Unknown stops the hold. Missing duration is excluded, not counted as zero.
+assert.deepEqual(means([{time:0,value:4},{time:hour*.5,value:null},
+  {time:hour*2.5,value:8}],0,hour*3),[4,null,8]);
+assert.deepEqual(means([],0,hour*2),[null,null]);
+// No state is invented before the first reading, and the current partial hour is included.
+assert.deepEqual(means([{time:hour*.75,value:6}],0,hour*1.25),[6,6]);
+assert.deepEqual(means([{time:hour*.25,value:2},{time:hour*.5,value:6}],hour*.25,hour*.75),[4]);
+// Simultaneous updates have no duration; the last update is the state held forward.
+assert.deepEqual(means([{time:0,value:100},{time:0,value:2}],0,hour),[2]);
+// A Recorder start-state predating the requested window is retained as its baseline.
+const baseline=rawSamples([{s:'4',lu:0},{s:'8',lu:hour*1.5/1000}],hour,hour*2);
+assert.deepEqual(means(baseline,hour,hour*2),[6]);
+assert.equal(baseline[0].time,hour);
+console.log('Hourly means: duration weighting, boundaries, partial hours, gaps, zero, signed values and baseline passed');

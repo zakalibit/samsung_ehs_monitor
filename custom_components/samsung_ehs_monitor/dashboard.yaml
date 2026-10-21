@@ -110,7 +110,7 @@ views:
     cards:
       - type: custom:samsung-ehs-history-bar-card
         stacked: true
-        title: Electrical input and estimated heat · 24 hours
+        title: Electrical input and estimated heat · hourly averages
         hours_to_show: 24
         entities:
           - entity: electrical_input_power_kw
@@ -119,21 +119,21 @@ views:
             name: Estimated heat output · kW
       - type: custom:samsung-ehs-history-bar-card
         stacked: true
-        title: Outdoor temperature · 24 hours
+        title: Outdoor temperature · hourly averages
         hours_to_show: 24
         entities:
           - entity: outdoor_temperature
             name: Outdoors
       - type: custom:samsung-ehs-history-bar-card
         stacked: true
-        title: Water flow · 24 hours
+        title: Water flow · hourly averages
         hours_to_show: 24
         entities:
           - entity: water_flow_rate
             name: Flow rate
       - type: custom:samsung-ehs-history-bar-card
         stacked: true
-        title: Compressor frequency · 24 hours
+        title: Compressor frequency · hourly averages
         hours_to_show: 24
         entities:
           - entity: compressor_frequency
@@ -142,14 +142,14 @@ views:
             name: Target
       - type: custom:samsung-ehs-history-bar-card
         stacked: true
-        title: Pump speed · 24 hours
+        title: Pump speed · hourly averages
         hours_to_show: 24
         entities:
           - entity: circulation_pump_speed
             name: Pump speed
       - type: custom:samsung-ehs-history-bar-card
         stacked: true
-        title: Discharge gas temperature · 24 hours
+        title: Discharge gas temperature · hourly averages
         hours_to_show: 24
         entities:
           - entity: discharge_temperature

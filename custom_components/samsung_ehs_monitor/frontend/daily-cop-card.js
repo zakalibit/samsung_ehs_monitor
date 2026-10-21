@@ -354,37 +354,46 @@ if (!customElements.get('samsung-ehs-weather-curve-card')) {
 window.customCards.push({type:'samsung-ehs-weather-curve-card', name:'Samsung EHS Weather Curve',
   description:'Configured heating water law with current outdoor and flow-water temperatures.'});
 
-/* Keep every recorded state change. Never bucket or average numeric values. */
+/* Decode Recorder states before integrating them into hourly means. */
 function samsungEHSRawSamples(rows, start, end) {
   if (!Array.isArray(rows)) return [];
-  return rows.flatMap(row => {
+  const samples = rows.flatMap(row => {
     if (!row || typeof row !== 'object') return [];
     const time = typeof row.lu === 'number' ? row.lu*1000
       : typeof row.lc === 'number' ? row.lc*1000 : Date.parse(row.last_updated || row.last_changed);
-    if (!Number.isFinite(time) || time < start || time > end) return [];
+    if (!Number.isFinite(time) || time > end) return [];
     const state = row.s ?? row.state;
     const value = typeof state === 'string' && state.trim() !== '' ? Number(state) : NaN;
     return [{time, value:Number.isFinite(value) ? value : null}];
   }).sort((a, b) => a.time-b.time);
+  const previous = samsungEHSLastSample(samples, start);
+  return [...(previous ? [{time:start, value:previous.value}] : []),
+    ...samples.filter(point => point.time > start)];
 }
 
-function samsungEHSAlignHistory(history) {
-  // HA history represents a state until its next recorded update. Stack those
-  // states at the union of change timestamps, retaining each source timestamp.
-  const repeats = new Map();
-  for (const series of history) {
-    const counts = new Map();
-    for (const point of series.samples) counts.set(point.time,(counts.get(point.time) || 0)+1);
-    for (const [time,count] of counts) repeats.set(time,Math.max(repeats.get(time) || 0,count));
+function samsungEHSHourlySamples(samples, start, end) {
+  // Recorder states persist until the next change. Weight each valid state by
+  // its duration, excluding unavailable intervals instead of treating them as zero.
+  const hour = 3600000;
+  const buckets = [];
+  for (let time=Math.floor(start/hour)*hour; time<end; time+=hour) {
+    buckets.push({time, end:Math.min(time+hour,end), total:0, duration:0});
   }
-  const times = [...repeats.keys()].sort((a,b)=>a-b).flatMap(time=>Array(repeats.get(time)).fill(time));
-  return history.map(series => {
-    let index=0, current;
-    return times.map(time => {
-      if (series.samples[index]?.time === time) current=series.samples[index++];
-      return [time,current?.value ?? null,current?.time ?? null];
-    });
-  });
+  for (let index=0; index<samples.length; index++) {
+    const point = samples[index];
+    if (point.value === null) continue;
+    let from = Math.max(start,point.time);
+    const to = Math.min(end,samples[index+1]?.time ?? end);
+    while (from<to) {
+      const bucket = buckets[Math.floor(from/hour)-Math.floor(start/hour)];
+      const until = Math.min(to,bucket.end);
+      bucket.total += point.value*(until-from);
+      bucket.duration += until-from;
+      from = until;
+    }
+  }
+  return buckets.map(bucket => ({time:bucket.time,end:bucket.end,
+    value:bucket.duration ? bucket.total/bucket.duration : null}));
 }
 
 let samsungEHSChartLoading;
@@ -490,9 +499,9 @@ class SamsungEHSHistoryBarCard extends HTMLElement {
       this._start = start; this._end = end;
       this._history = this.config.entities.map(row => ({...row,
         unit:this._hass.states[row.entity]?.attributes?.unit_of_measurement || '',
-        samples:samsungEHSRawSamples(history[row.entity], start, end)}));
+        samples:samsungEHSHourlySamples(samsungEHSRawSamples(history[row.entity], start, end), start, end)}));
       const count = this._history.reduce((sum, series) => sum+series.samples.filter(point => point.value !== null).length, 0);
-      this._info.textContent = count ? `${count.toLocaleString()} recorded states · no averaging` : 'No numeric history available. Check Recorder for these entities.';
+      this._info.textContent = count ? 'Hourly averages · partial hours use available data' : 'No numeric history available. Check Recorder for these entities.';
       loaded = true;
     } catch (error) {
       if (generation === this._generation && this._connected) {
@@ -507,15 +516,14 @@ class SamsungEHSHistoryBarCard extends HTMLElement {
     if (!this._history) return;
     const style = getComputedStyle(this);
     const fallback = ['#0288d1','#f39c12','#8e44ad','#16a085'];
-    const aligned = samsungEHSAlignHistory(this._history);
     this._series = this._history.map((series, index) => ({
       id:series.entity, name:series.name || series.entity, type:'bar',
       stack:this.config.stacked === false ? undefined : 'readings',
       color:style.getPropertyValue(`--graph-color-${index+1}`).trim()
         || style.getPropertyValue(`--color-${index+1}`).trim() || fallback[index%fallback.length],
       barMaxWidth:40, barMinWidth:1,
-      // Values are recorded states held until the next update; no statistics.
-      data:aligned[index],
+      // One time-weighted mean per hour, aligned across all series.
+      data:series.samples.map(point => [point.time,point.value]),
     }));
     const units = new Set(this._history.map(series => series.unit));
     if (!this._chart) {
@@ -528,7 +536,7 @@ class SamsungEHSHistoryBarCard extends HTMLElement {
     this._chart.hass = this._hass;
     this._chart.options = {
       animation:false,
-      xAxis:{type:'time',min:new Date(this._start),max:new Date(this._end)},
+      xAxis:{type:'time',min:new Date(Math.floor(this._start/3600000)*3600000),max:new Date(this._end)},
       yAxis:{type:'value',name:units.size === 1 ? this._history[0].unit : '', splitLine:{show:true}},
       grid:{left:1,right:1,top:25,bottom:0,containLabel:true},
       legend:{type:'custom',data:this._series.map(series => ({id:series.id,name:series.name}))},
@@ -549,15 +557,15 @@ class SamsungEHSHistoryBarCard extends HTMLElement {
     const body = document.createElement('div');
     body.style.maxWidth = '300px';
     const title = document.createElement('div');
-    title.textContent = clock.format(new Date(time));
+    title.textContent = `${clock.format(new Date(time))} – ${clock.format(new Date(Math.min(time+3600000,this._end)))} · hourly average`;
     title.style.fontWeight = 'bold';
     body.append(title);
     let count = 0;
     this._history.forEach((series,index) => {
       if (this._hidden.has(series.entity)) return;
-      // Same fallback as HA history tooltips: last recorded state at/before hover.
+      // Read only this hour’s mean; never borrow a value from an earlier hour.
       const point = samsungEHSLastSample(series.samples,time);
-      if (!point) return;
+      if (!point || time >= point.end) return;
       const row = document.createElement('div');
       row.style.marginTop = '6px';
       const marker = document.createElement('ha-chart-tooltip-marker');
@@ -567,13 +575,6 @@ class SamsungEHSHistoryBarCard extends HTMLElement {
       const value = point.value === null ? 'unavailable' : `${number.format(point.value)}${series.unit ? ' '+series.unit : ''}`;
       label.textContent = ` ${series.name || series.entity}: ${value}`;
       row.append(label);
-      if (point.time !== time) {
-        const timestamp = document.createElement('div');
-        timestamp.style.fontSize = '11px';
-        timestamp.style.opacity = '0.7';
-        timestamp.textContent = `Recorded ${clock.format(new Date(point.time))}`;
-        row.append(timestamp);
-      }
       body.append(row);
       count++;
     });
@@ -584,4 +585,4 @@ if (!customElements.get('samsung-ehs-history-bar-card')) {
   customElements.define('samsung-ehs-history-bar-card', SamsungEHSHistoryBarCard);
 }
 window.customCards.push({type:'samsung-ehs-history-bar-card', name:'Samsung EHS History Bars',
-  description:'Raw recorded values using Home Assistant’s native stacked bar chart and shared tooltip.'});
+  description:'Hourly averaged measurements using Home Assistant’s native stacked bar chart and shared tooltip.'});
