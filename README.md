@@ -19,6 +19,8 @@ If the link does not work, open **HACS → ⋮ → Custom repositories**, add `h
 
 HACS also handles future downloads and updates. Restart Home Assistant after installing an update and refresh your browser for frontend changes. Without GitHub releases, HACS downloads the repository's default branch.
 
+The integration includes its own icon in `custom_components/samsung_ehs_monitor/brand/`. Local integration icons require Home Assistant 2026.3 or later. See the [Home Assistant brand-image documentation](https://contributors.home-assistant.io/core/integrations/brands/#brand-images-for-custom-integrations).
+
 ### Manual installation
 
 1. [Download the repository ZIP](https://github.com/zakalibit/samsung_ehs_monitor/archive/refs/heads/main.zip) and copy only `custom_components/samsung_ehs_monitor/` into `/config/custom_components/`, replacing the existing integration folder when upgrading.
