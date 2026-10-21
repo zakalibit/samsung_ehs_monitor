@@ -114,8 +114,8 @@ views:
     cards:
       - type: custom:samsung-ehs-history-bar-card
         stacked: true
-        title: Electrical input and estimated heat · hourly averages
-        hours_to_show: 24
+        title: Electrical input and estimated heat · today, hourly averages
+        period: day
         entities:
           - entity: sensor.samsung_ehs_monitor_electrical_input_power_kw
             name: Electrical input · kW
@@ -123,22 +123,22 @@ views:
             name: Estimated heat output · kW
       - type: custom:samsung-ehs-history-bar-card
         stacked: true
-        title: Outdoor temperature · hourly averages
-        hours_to_show: 24
+        title: Outdoor temperature · today, hourly averages
+        period: day
         entities:
           - entity: sensor.samsung_ehs_monitor_outdoor_temperature
             name: Outdoors
       - type: custom:samsung-ehs-history-bar-card
         stacked: true
-        title: Water flow · hourly averages
-        hours_to_show: 24
+        title: Water flow · today, hourly averages
+        period: day
         entities:
           - entity: sensor.samsung_ehs_monitor_water_flow_rate
             name: Flow rate
       - type: custom:samsung-ehs-history-bar-card
         stacked: true
-        title: Compressor frequency · hourly averages
-        hours_to_show: 24
+        title: Compressor frequency · today, hourly averages
+        period: day
         entities:
           - entity: sensor.samsung_ehs_monitor_compressor_frequency
             name: Actual
@@ -146,15 +146,15 @@ views:
             name: Target
       - type: custom:samsung-ehs-history-bar-card
         stacked: true
-        title: Pump speed · hourly averages
-        hours_to_show: 24
+        title: Pump speed · today, hourly averages
+        period: day
         entities:
           - entity: sensor.samsung_ehs_monitor_circulation_pump_speed
             name: Pump speed
       - type: custom:samsung-ehs-history-bar-card
         stacked: true
-        title: Discharge gas temperature · hourly averages
-        hours_to_show: 24
+        title: Discharge gas temperature · today, hourly averages
+        period: day
         entities:
           - entity: sensor.samsung_ehs_monitor_discharge_gas_temperature
             name: Discharge gas

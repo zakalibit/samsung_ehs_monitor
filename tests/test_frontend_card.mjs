@@ -203,10 +203,12 @@ assert.equal(helpersLoaded,1);
 assert.equal(nativeModuleLoads,1);
 assert.equal(request.type,'history/history_during_period');
 assert.equal(request.include_start_time_state,true);
+assert.equal(Date.parse(request.start_time),context.samsungEHSDayStart(Date.parse(request.end_time)));
+assert.equal(bars._chart.options.xAxis.min.getTime(),Date.parse(request.start_time));
 assert.equal(request.period,undefined);
 assert.equal(request.statistic_ids,undefined);
 const hourly=context.samsungEHSHourlySamples;
-assert.equal(bars._history[0].samples.length,Math.ceil(bars._end/3600000)-Math.floor(bars._start/3600000));
+assert.equal(bars._history[0].samples.length,Math.ceil((bars._end-bars._start)/3600000));
 assert(bars._info.textContent.includes('Hourly averages'));
 assert.equal(bars._chart.tag,'ha-chart-base');
 assert.equal(bars._chart.options.tooltip.trigger,'axis');
@@ -283,3 +285,24 @@ const baseline=rawSamples([{s:'4',lu:0},{s:'8',lu:hour*1.5/1000}],hour,hour*2);
 assert.deepEqual(means(baseline,hour,hour*2),[6]);
 assert.equal(baseline[0].time,hour);
 console.log('Hourly means: duration weighting, boundaries, partial hours, gaps, zero, signed values and baseline passed');
+
+const dayStart=context.samsungEHSDayStart;
+for (const [now,zone,expected] of [
+  ['2026-10-21T14:30:00Z','Europe/Dublin','2026-10-20T23:00:00Z'],
+  ['2026-10-25T14:30:00Z','Europe/Dublin','2026-10-24T23:00:00Z'],
+  ['2026-03-29T14:30:00Z','Europe/Dublin','2026-03-29T00:00:00Z'],
+  ['2026-10-21T01:30:00Z','America/New_York','2026-10-20T04:00:00Z'],
+  ['2026-10-21T14:30:00Z','Asia/Kolkata','2026-10-20T18:30:00Z'],
+  ['2026-10-21T00:00:00Z','UTC','2026-10-21T00:00:00Z'],
+]) assert.equal(dayStart(Date.parse(now),zone),Date.parse(expected));
+const rolling=new Bars();
+rolling.setConfig({entities:[{entity:'sensor.power'}],hours_to_show:12});
+assert.equal(rolling._today,false);
+rolling.setConfig({entities:[{entity:'sensor.power'}],period:'day',hours_to_show:12});
+assert.equal(rolling._today,true);
+console.log('Today default: HA timezone midnight, DST transitions, date boundaries and explicit rolling range passed');
+
+const offsetMidnight=Date.parse('2026-10-20T18:30:00Z');
+const offsetHours=hourly([{time:offsetMidnight,value:3}],offsetMidnight,offsetMidnight+hour*2,offsetMidnight);
+assert.equal(offsetHours[0].time,offsetMidnight);
+assert.equal(offsetHours[1].time,offsetMidnight+hour);

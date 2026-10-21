@@ -371,12 +371,12 @@ function samsungEHSRawSamples(rows, start, end) {
     ...samples.filter(point => point.time > start)];
 }
 
-function samsungEHSHourlySamples(samples, start, end) {
+function samsungEHSHourlySamples(samples, start, end, origin=Math.floor(start/3600000)*3600000) {
   // Recorder states persist until the next change. Weight each valid state by
   // its duration, excluding unavailable intervals instead of treating them as zero.
   const hour = 3600000;
   const buckets = [];
-  for (let time=Math.floor(start/hour)*hour; time<end; time+=hour) {
+  for (let time=origin; time<end; time+=hour) {
     buckets.push({time, end:Math.min(time+hour,end), total:0, duration:0});
   }
   for (let index=0; index<samples.length; index++) {
@@ -385,7 +385,7 @@ function samsungEHSHourlySamples(samples, start, end) {
     let from = Math.max(start,point.time);
     const to = Math.min(end,samples[index+1]?.time ?? end);
     while (from<to) {
-      const bucket = buckets[Math.floor(from/hour)-Math.floor(start/hour)];
+      const bucket = buckets[Math.floor((from-origin)/hour)];
       const until = Math.min(to,bucket.end);
       bucket.total += point.value*(until-from);
       bucket.duration += until-from;
@@ -394,6 +394,21 @@ function samsungEHSHourlySamples(samples, start, end) {
   }
   return buckets.map(bucket => ({time:bucket.time,end:bucket.end,
     value:bucket.duration ? bucket.total/bucket.duration : null}));
+}
+
+function samsungEHSDayStart(end, timeZone) {
+  // Find the first instant of today's date in HA's timezone. Searching dates
+  // handles DST days without assuming they are exactly 24 hours long.
+  const calendar = new Intl.DateTimeFormat('en-CA', {
+    timeZone, year:'numeric', month:'2-digit', day:'2-digit'});
+  const today = calendar.format(new Date(end));
+  let left=end-36*3600000, right=end;
+  while (left<right) {
+    const middle=Math.floor((left+right)/2);
+    if (calendar.format(new Date(middle)) === today) right=middle;
+    else left=middle+1;
+  }
+  return left;
 }
 
 let samsungEHSChartLoading;
@@ -436,6 +451,7 @@ class SamsungEHSHistoryBarCard extends HTMLElement {
     if (!Number.isFinite(hours) || hours <= 0 || hours > 168) throw new Error('History range must be between 1 and 168 hours');
     this.config = config;
     this._hours = hours;
+    this._today = config.period === 'day' || (config.period === undefined && config.hours_to_show === undefined);
     this._generation = (this._generation || 0)+1;
     this._pending = false;
     this._history = null;
@@ -484,7 +500,8 @@ class SamsungEHSHistoryBarCard extends HTMLElement {
     if (!this._connected || !this.config || !this._hass || this._pending) return;
     this._pending = true;
     const generation = this._generation;
-    const end = Date.now(), start = end-this._hours*3600000;
+    const end = Date.now();
+    const start = this._today ? samsungEHSDayStart(end,this._hass.config?.time_zone) : end-this._hours*3600000;
     this._lastAttempt = end;
     let loaded = false;
     try {
@@ -499,7 +516,7 @@ class SamsungEHSHistoryBarCard extends HTMLElement {
       this._start = start; this._end = end;
       this._history = this.config.entities.map(row => ({...row,
         unit:this._hass.states[row.entity]?.attributes?.unit_of_measurement || '',
-        samples:samsungEHSHourlySamples(samsungEHSRawSamples(history[row.entity], start, end), start, end)}));
+        samples:samsungEHSHourlySamples(samsungEHSRawSamples(history[row.entity], start, end), start, end, this._today ? start : undefined)}));
       const count = this._history.reduce((sum, series) => sum+series.samples.filter(point => point.value !== null).length, 0);
       this._info.textContent = count ? 'Hourly averages · partial hours use available data' : 'No numeric history available. Check Recorder for these entities.';
       loaded = true;
@@ -536,7 +553,7 @@ class SamsungEHSHistoryBarCard extends HTMLElement {
     this._chart.hass = this._hass;
     this._chart.options = {
       animation:false,
-      xAxis:{type:'time',min:new Date(Math.floor(this._start/3600000)*3600000),max:new Date(this._end)},
+      xAxis:{type:'time',min:new Date(this._today ? this._start : Math.floor(this._start/3600000)*3600000),max:new Date(this._end)},
       yAxis:{type:'value',name:units.size === 1 ? this._history[0].unit : '', splitLine:{show:true}},
       grid:{left:1,right:1,top:25,bottom:0,containLabel:true},
       legend:{type:'custom',data:this._series.map(series => ({id:series.id,name:series.name}))},
