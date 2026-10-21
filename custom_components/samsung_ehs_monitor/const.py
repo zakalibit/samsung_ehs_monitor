@@ -9,6 +9,4 @@ CONF_POWER_SENSOR = "power_sensor"
 
 CONF_CREATE_DASHBOARD = "create_dashboard"
 
-OAUTH_AUTHORIZE_URL = "https://api.smartthings.com/oauth/authorize"
-OAUTH_TOKEN_URL = "https://api.smartthings.com/oauth/token"
-OAUTH_SCOPES = ["r:devices:*"]
+CONF_SMARTTHINGS_ENTRY = "smartthings_entry"

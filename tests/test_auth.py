@@ -1,4 +1,4 @@
-"""Standalone OAuth sessions, token exchanges, and migration from manual tokens."""
+"""Manual authentication, shared refresh callbacks and safe reconfiguration."""
 import ast
 import asyncio
 from pathlib import Path
@@ -24,15 +24,6 @@ class HAError(Exception):
 
 class AuthFailed(HAError):
     pass
-
-
-class UnknownImplementation(HAError):
-    pass
-
-
-class TokenError(HAError):
-    def __init__(self, **kwargs):
-        super().__init__('Invalid token response')
 
 
 def production(filename, scope):
@@ -67,101 +58,111 @@ class Response:
 
 class AuthTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
-        self.entry = NS(entry_id='our-entry', domain='samsung_ehs_monitor', data={
-            'auth_implementation': 'our-app', 'token': {'access_token': 'first', 'refresh_token': 'refresh'}})
+        self.refresh = AsyncMock(return_value='first')
+        self.source = NS(entry_id='source', domain='smartthings', state='loaded',
+                         runtime_data=NS(client=NS(refresh_token_function=self.refresh)))
         self.http = NS(get=Mock(side_effect=lambda *a, **kw: Response()))
-        self.hass = NS()  # No SmartThings entry or runtime connection exists.
-        self.oauth = NS(token=self.entry.data['token'], async_ensure_token_valid=AsyncMock())
-        self.factory = Mock(return_value=self.oauth)
-        self.implementation = NS()
-        self.lookup = AsyncMock(return_value=self.implementation)
+        self.entries = NS(async_get_entry=Mock(return_value=self.source))
+        self.hass = NS(config_entries=self.entries)
         self.scope = production('auth.py', dict(
             asyncio=asyncio, ClientError=ClientError, ClientResponseError=HTTPError,
             HomeAssistantError=HAError, ConfigEntryAuthFailed=AuthFailed,
-            OAuth2Session=self.factory, UnknownImplementationError=UnknownImplementation,
-            async_get_config_entry_implementation=self.lookup,
+            ConfigEntryState=NS(LOADED='loaded'), CONF_SMARTTHINGS_ENTRY='smartthings_entry',
             async_get_clientsession=lambda h: self.http, CONF_TOKEN='token',
             SmartThingsAuthError=api['SmartThingsAuthError'], SmartThingsError=api['SmartThingsError'],
             SmartThingsClient=api['SmartThingsClient']))
 
-    async def test_owns_oauth_session_and_checks_refresh_before_every_request(self):
-        client = await self.scope['async_create_client'](self.hass, self.entry)
+    async def client(self, data=None):
+        return await self.scope['async_create_client'](
+            self.hass, data if data is not None else {'smartthings_entry': 'source'})
+
+    async def test_shared_callback_refreshes_before_every_request(self):
+        client = await self.client()
         await client.devices()
-        self.oauth.token.update(access_token='rotated', refresh_token='rotated-refresh')
+        self.refresh.return_value = 'rotated'
         await client.status('pump')
-        self.lookup.assert_awaited_once_with(self.hass, self.entry)
-        self.factory.assert_called_once_with(self.hass, self.entry, self.implementation)
-        self.assertEqual(self.oauth.async_ensure_token_valid.await_count, 2)
+        self.assertEqual(self.refresh.await_count, 2)
         self.assertEqual([call.kwargs['headers']['Authorization'] for call in self.http.get.call_args_list],
                          ['Bearer first', 'Bearer rotated'])
-        self.assertEqual(self.entry.data['token']['refresh_token'], 'rotated-refresh')
+        self.entries.async_get_entry.assert_called_with('source')
 
-    async def test_manual_token_still_works_without_oauth_session(self):
-        self.entry.data = {'token': 'manual'}
-        client = await self.scope['async_create_client'](self.hass, self.entry)
+    async def test_source_reload_resolves_new_runtime(self):
+        client = await self.client()
         await client.devices()
-        self.assertEqual(self.http.get.call_args.kwargs['headers']['Authorization'], 'Bearer manual')
-        self.factory.assert_not_called()
+        replacement = AsyncMock(return_value='new-runtime')
+        self.source.runtime_data = NS(client=NS(refresh_token_function=replacement))
+        await client.devices()
+        replacement.assert_awaited_once()
+        self.assertEqual(self.refresh.await_count, 1)
+        self.assertEqual(self.http.get.call_args.kwargs['headers']['Authorization'], 'Bearer new-runtime')
 
-    async def test_removed_credentials_requires_reauthentication(self):
-        self.lookup.side_effect = UnknownImplementation()
-        with self.assertRaises(api['SmartThingsAuthError']):
-            await self.scope['async_create_client'](self.hass, self.entry)
-
-    async def test_refresh_invalid_grant_requires_reauthentication(self):
-        client = await self.scope['async_create_client'](self.hass, self.entry)
-        self.oauth.async_ensure_token_valid.side_effect = HTTPError(400)
-        with self.assertRaises(api['SmartThingsAuthError']):
-            await client.devices()
-        self.http.get.assert_not_called()
-
-    async def test_refresh_network_failure_is_retryable_and_sanitized(self):
-        client = await self.scope['async_create_client'](self.hass, self.entry)
-        self.oauth.async_ensure_token_valid.side_effect = ClientError('sensitive details')
+    async def test_unloaded_source_is_retryable_and_resumes(self):
+        client = await self.client()
+        self.source.state = 'not_loaded'
         with self.assertRaises(api['SmartThingsError']) as caught:
             await client.devices()
         self.assertNotIsInstance(caught.exception, api['SmartThingsAuthError'])
-        self.assertNotIn('sensitive', str(caught.exception))
+        self.refresh.assert_not_awaited()
+        self.http.get.assert_not_called()
+        self.source.state = 'loaded'
+        await client.devices()
+        self.refresh.assert_awaited_once()
 
+    async def test_removed_or_wrong_domain_requires_reconfiguration(self):
+        client = await self.client()
+        for source in (None, NS(domain='other')):
+            self.entries.async_get_entry.return_value = source
+            with self.assertRaises(api['SmartThingsAuthError']):
+                await client.devices()
+        self.http.get.assert_not_called()
 
-class Implementation:
-    def __init__(self, hass, domain, client_id, client_secret, authorize_url, token_url):
-        self.hass, self.client_id, self.client_secret = hass, client_id, client_secret
-        self.authorize_url, self.token_url = authorize_url, token_url
+    async def test_missing_runtime_or_callback_is_actionable(self):
+        client = await self.client()
+        for runtime in (None, NS(client=NS())):
+            self.source.runtime_data = runtime
+            with self.assertRaisesRegex(api['SmartThingsError'], 'update Home Assistant'):
+                await client.devices()
+        self.http.get.assert_not_called()
 
+    async def test_manual_token_without_smartthings(self):
+        self.hass = NS()  # No source integration or config entry manager required.
+        client = await self.client({'token': ' manual '})
+        await client.devices()
+        self.assertEqual(self.http.get.call_args.kwargs['headers']['Authorization'], 'Bearer manual')
+        self.refresh.assert_not_awaited()
 
-class CredentialTests(unittest.IsolatedAsyncioTestCase):
-    def setUp(self):
-        self.response = Response({'access_token': 'access', 'refresh_token': 'refresh', 'expires_in': 86400})
-        self.http = NS(post=Mock(return_value=self.response))
-        scope = production('application_credentials.py', dict(
-            BasicAuth=lambda user, password: NS(login=user, password=password), ClientTimeout=lambda **kw: kw,
-            OAuth2TokenRequestConnectionError=TokenError, LocalOAuth2Implementation=Implementation,
-            async_get_clientsession=lambda h: self.http, DOMAIN='samsung_ehs_monitor',
-            OAUTH_AUTHORIZE_URL='https://api.smartthings.com/oauth/authorize',
-            OAUTH_TOKEN_URL='https://api.smartthings.com/oauth/token'))
-        self.factory = scope['async_get_auth_implementation']
+    async def test_legacy_oauth_and_empty_token_require_reauthentication(self):
+        for token in ({'access_token': 'old', 'refresh_token': 'old-refresh'}, None, '', '  '):
+            with self.assertRaises(api['SmartThingsAuthError']):
+                await self.client({'token': token})
+        self.http.get.assert_not_called()
 
-    async def test_code_and_refresh_exchange_use_basic_auth_and_form_data(self):
-        impl = await self.factory(NS(), 'our-app', NS(client_id='client', client_secret='secret'))
-        for grant in ('authorization_code', 'refresh_token'):
-            token = await impl._token_request({'grant_type': grant, 'code': 'code', 'refresh_token': 'refresh'})
-            self.assertEqual(token['access_token'], 'access')
-            call = self.http.post.call_args
-            self.assertEqual(call.args[0], 'https://api.smartthings.com/oauth/token')
-            self.assertEqual(call.kwargs['auth'].login, 'client')
-            self.assertEqual(call.kwargs['auth'].password, 'secret')
-            self.assertEqual(call.kwargs['data']['client_id'], 'client')
-            self.assertNotIn('client_secret', call.kwargs['data'])
-            self.assertFalse(call.kwargs['allow_redirects'])
+    async def test_refresh_auth_failures_are_sanitized(self):
+        client = await self.client()
+        for error in (AuthFailed('secret'), HTTPError(400), HTTPError(401), HTTPError(403)):
+            self.refresh.side_effect = error
+            with self.assertRaisesRegex(api['SmartThingsAuthError'], 'Repair authentication') as caught:
+                await client.devices()
+            self.assertNotIn('secret', str(caught.exception))
+        self.http.get.assert_not_called()
 
-    async def test_invalid_token_response_is_not_saved(self):
-        impl = await self.factory(NS(), 'our-app', NS(client_id='client', client_secret='secret'))
-        for data in ({'access_token': 'access'}, {'access_token': 'access', 'expires_in': 10},
-                     {'access_token': 'access', 'refresh_token': 'refresh', 'expires_in': 0}, ['invalid']):
-            self.response.data = data
-            with self.assertRaises(TokenError):
-                await impl._token_request({'grant_type': 'authorization_code'})
+    async def test_refresh_temporary_failure_is_retryable(self):
+        client = await self.client()
+        for error in (ClientError('secret'), HTTPError(503), asyncio.TimeoutError(), HAError('secret')):
+            self.refresh.side_effect = error
+            with self.assertRaises(api['SmartThingsError']) as caught:
+                await client.devices()
+            self.assertNotIsInstance(caught.exception, api['SmartThingsAuthError'])
+            self.assertNotIn('secret', str(caught.exception))
+        self.http.get.assert_not_called()
+
+    async def test_invalid_callback_value_is_rejected(self):
+        client = await self.client()
+        for value in (None, '', {}):
+            self.refresh.return_value = value
+            with self.assertRaises(api['SmartThingsAuthError']):
+                await client.devices()
+        self.http.get.assert_not_called()
 
 
 class FlowBase:
@@ -189,58 +190,85 @@ class FlowBase:
     def _abort_if_unique_id_configured(self):
         pass
 
-    async def async_step_pick_implementation(self, user_input):
-        return {'type': 'oauth_authorize'}
-
 
 class FlowTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.client = NS(devices=AsyncMock(return_value=[{'deviceId': 'pump', 'label': 'EHS'},
                                                         {'deviceId': 'other', 'label': 'Other'}]),
                          status=AsyncMock(return_value={'ehs': True}))
+        self.factory = AsyncMock(return_value=self.client)
         self.scope = production('config_flow.py', dict(
             vol=NS(Schema=lambda v: v, Required=lambda v: v, Optional=lambda v, **kw: v, In=lambda v: v),
-            config_entries=NS(OptionsFlow=FlowBase), AbstractOAuth2FlowHandler=FlowBase, callback=lambda f: f,
+            config_entries=NS(ConfigFlow=FlowBase, OptionsFlow=FlowBase), callback=lambda f: f,
             DOMAIN='samsung_ehs_monitor', CONF_TOKEN='token', CONF_DEVICE_ID='device_id',
             CONF_POWER_SENSOR='power_sensor', CONF_CREATE_DASHBOARD='create_dashboard',
-            OAUTH_SCOPES=['r:devices:*'], async_get_clientsession=lambda h: NS(),
+            CONF_SMARTTHINGS_ENTRY='smartthings_entry', async_create_client=self.factory,
             SmartThingsAuthError=api['SmartThingsAuthError'], SmartThingsError=api['SmartThingsError'],
-            SmartThingsClient=lambda *a, **kw: self.client, is_ehs_status=lambda data: data.get('ehs'),
+            is_ehs_status=lambda data: data.get('ehs'),
             selector=NS(TextSelector=lambda v: v, TextSelectorConfig=lambda **kw: kw,
                         TextSelectorType=NS(PASSWORD='password'))))
         self.flow = self.scope['SamsungEHSConfigFlow']()
-        self.flow.hass = NS(config_entries=NS(async_schedule_reload=Mock()))
-        self.oauth_data = {'auth_implementation': 'our-app', 'token': {
-            'access_token': 'access', 'refresh_token': 'refresh', 'scope': 'r:devices:*', 'expires_at': 123}}
+        self.entries = NS(async_schedule_reload=Mock(), async_entries=Mock(return_value=[
+            NS(entry_id='source', title='House'), NS(entry_id='another', title='Office')]))
+        self.flow.hass = NS(config_entries=self.entries)
 
-    async def test_standalone_oauth_and_manual_menu(self):
-        self.assertEqual((await self.flow.async_step_user())['menu_options'], ['oauth', 'token'])
-        self.assertEqual((await self.flow.async_step_oauth())['type'], 'oauth_authorize')
-        self.assertEqual(self.flow.extra_authorize_data, {'scope': 'r:devices:*'})
-        self.assertEqual((await self.flow.async_oauth_create_entry(self.oauth_data))['step_id'], 'device')
+    async def test_exactly_two_options_and_source_selection(self):
+        self.assertEqual((await self.flow.async_step_user())['menu_options'], ['smartthings', 'token'])
+        result = await self.flow.async_step_smartthings()
+        self.assertEqual(result['data_schema']['smartthings_entry'], {'source': 'House', 'another': 'Office'})
+        self.entries.async_entries.assert_called_with('smartthings')
+        self.assertEqual((await self.flow.async_step_smartthings({'smartthings_entry': 'source'}))['step_id'], 'device')
         result = await self.flow.async_step_device({'device_id': 'pump'})
-        self.assertEqual(result['data'], {**self.oauth_data, 'device_id': 'pump'})
-        self.assertNotIn('smartthings_entry', result['data'])
+        self.assertEqual(result['data'], {'smartthings_entry': 'source', 'device_id': 'pump'})
+        self.factory.assert_awaited_once_with(self.flow.hass, {'smartthings_entry': 'source'})
 
-    async def test_reconfiguration_preserves_device_and_history_identity(self):
-        entry = NS(entry_id='ours', data={'device_id': 'pump', 'token': 'old-secret', 'other': 1},
-                   options={'power_sensor': 'sensor.power'})
-        self.flow._get_reconfigure_entry = lambda: entry
-        await self.flow.async_step_reconfigure()
-        await self.flow.async_oauth_create_entry(self.oauth_data)
-        self.assertEqual(list(self.flow._devices), ['pump'])
-        result = await self.flow.async_step_device({'device_id': 'pump'})
-        self.assertEqual(result['data'], {'device_id': 'pump', 'other': 1, **self.oauth_data})
-        self.assertEqual(entry.options, {'power_sensor': 'sensor.power'})
-        self.flow.hass.config_entries.async_schedule_reload.assert_called_once_with('ours')
-
-    async def test_manual_path_and_invalid_oauth_permissions(self):
+    async def test_manual_path(self):
         await self.flow.async_step_token({'token': ' manual '})
         result = await self.flow.async_step_device({'device_id': 'pump'})
-        self.assertEqual(result['data']['token'], 'manual')
-        self.assertEqual((await self.flow.async_oauth_create_entry({'token': {}}))['reason'], 'missing_refresh_token')
-        self.oauth_data['token']['scope'] = 'x:devices:*'
-        self.assertEqual((await self.flow.async_oauth_create_entry(self.oauth_data))['reason'], 'missing_scopes')
+        self.assertEqual(result['data'], {'token': 'manual', 'device_id': 'pump'})
+
+    async def test_missing_and_invalid_source(self):
+        result = await self.flow.async_step_smartthings({'smartthings_entry': 'unknown'})
+        self.assertEqual(result['errors']['base'], 'invalid_connection')
+        self.factory.assert_not_awaited()
+        self.entries.async_entries.return_value = []
+        self.assertEqual((await self.flow.async_step_smartthings())['reason'], 'no_smartthings')
+        self.assertEqual((await self.flow.async_step_user())['menu_options'], ['smartthings', 'token'])
+
+    async def test_reconfiguration_preserves_identity_and_clears_old_credentials(self):
+        for old in ({'token': {'access_token': 'old'}, 'auth_implementation': 'old-app'},
+                    {'token': 'manual'}, {'smartthings_entry': 'another'}):
+            entry = NS(entry_id='ours', data={'device_id': 'pump', 'other': 1, **old},
+                       options={'power_sensor': 'sensor.power'})
+            self.flow._get_reconfigure_entry = lambda: entry
+            await self.flow.async_step_reconfigure()
+            await self.flow.async_step_smartthings({'smartthings_entry': 'source'})
+            self.assertEqual(list(self.flow._devices), ['pump'])
+            result = await self.flow.async_step_device({'device_id': 'pump'})
+            self.assertEqual(result['data'], {'device_id': 'pump', 'other': 1, 'smartthings_entry': 'source'})
+            self.assertEqual(entry.options, {'power_sensor': 'sensor.power'})
+        self.assertEqual(self.entries.async_schedule_reload.call_count, 3)
+
+    async def test_reauthentication_can_switch_back_to_manual(self):
+        entry = NS(entry_id='ours', data={'device_id': 'pump', 'smartthings_entry': 'removed'})
+        self.flow._get_reauth_entry = lambda: entry
+        await self.flow.async_step_reauth(entry.data)
+        await self.flow.async_step_token({'token': 'replacement'})
+        result = await self.flow.async_step_device({'device_id': 'pump'})
+        self.assertEqual(result['data'], {'device_id': 'pump', 'token': 'replacement'})
+
+    async def test_discovery_auth_failure_is_not_hidden_as_no_devices(self):
+        self.client.status.side_effect = api['SmartThingsAuthError']('secret')
+        result = await self.flow.async_step_smartthings({'smartthings_entry': 'source'})
+        self.assertEqual(result['errors']['base'], 'invalid_auth')
+        self.assertEqual(self.flow._devices, {})
+
+    async def test_factory_failure_and_retry_do_not_retain_stale_devices(self):
+        await self.flow.async_step_token({'token': 'old'})
+        self.factory.side_effect = api['SmartThingsError']('offline')
+        result = await self.flow.async_step_smartthings({'smartthings_entry': 'source'})
+        self.assertEqual(result['errors']['base'], 'cannot_connect')
+        self.assertEqual(self.flow._devices, {})
 
 
 class ReloadTests(unittest.IsolatedAsyncioTestCase):

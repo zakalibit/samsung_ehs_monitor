@@ -353,3 +353,235 @@ if (!customElements.get('samsung-ehs-weather-curve-card')) {
 }
 window.customCards.push({type:'samsung-ehs-weather-curve-card', name:'Samsung EHS Weather Curve',
   description:'Configured heating water law with current outdoor and flow-water temperatures.'});
+
+/* Keep every recorded state change. Never bucket or average numeric values. */
+function samsungEHSRawSamples(rows, start, end) {
+  if (!Array.isArray(rows)) return [];
+  return rows.flatMap(row => {
+    if (!row || typeof row !== 'object') return [];
+    const time = typeof row.lu === 'number' ? row.lu*1000
+      : typeof row.lc === 'number' ? row.lc*1000 : Date.parse(row.last_updated || row.last_changed);
+    if (!Number.isFinite(time) || time < start || time > end) return [];
+    const state = row.s ?? row.state;
+    const value = typeof state === 'string' && state.trim() !== '' ? Number(state) : NaN;
+    return [{time, value:Number.isFinite(value) ? value : null}];
+  }).sort((a, b) => a.time-b.time);
+}
+
+function samsungEHSAlignHistory(history) {
+  // HA history represents a state until its next recorded update. Stack those
+  // states at the union of change timestamps, retaining each source timestamp.
+  const repeats = new Map();
+  for (const series of history) {
+    const counts = new Map();
+    for (const point of series.samples) counts.set(point.time,(counts.get(point.time) || 0)+1);
+    for (const [time,count] of counts) repeats.set(time,Math.max(repeats.get(time) || 0,count));
+  }
+  const times = [...repeats.keys()].sort((a,b)=>a-b).flatMap(time=>Array(repeats.get(time)).fill(time));
+  return history.map(series => {
+    let index=0, current;
+    return times.map(time => {
+      if (series.samples[index]?.time === time) current=series.samples[index++];
+      return [time,current?.value ?? null,current?.time ?? null];
+    });
+  });
+}
+
+let samsungEHSChartLoading;
+async function samsungEHSEnsureNativeChart() {
+  if (customElements.get('ha-chart-base')) return;
+  if (!samsungEHSChartLoading) {
+    samsungEHSChartLoading = (async () => {
+      if (typeof window.loadCardHelpers !== 'function') throw new Error('Home Assistant card helpers unavailable');
+      const helpers = await window.loadCardHelpers();
+      // Creating this unattached card loads HA's chart module without fetching history.
+      helpers.createCardElement({type:'history-graph', entities:['sun.sun']});
+      let timer;
+      try {
+        await Promise.race([
+          customElements.whenDefined('ha-chart-base'),
+          new Promise((resolve, reject) => { timer=setTimeout(() => reject(new Error('Chart module loading timed out')), 10000); }),
+        ]);
+      } finally { clearTimeout(timer); }
+    })().catch(error => { samsungEHSChartLoading=undefined; throw error; });
+  }
+  await samsungEHSChartLoading;
+}
+
+function samsungEHSLastSample(samples, time) {
+  let left=0, right=samples.length;
+  while (left<right) {
+    const middle=(left+right)>>1;
+    if (samples[middle].time<=time) left=middle+1; else right=middle;
+  }
+  return samples[left-1];
+}
+
+class SamsungEHSHistoryBarCard extends HTMLElement {
+  setConfig(config) {
+    if (!Array.isArray(config.entities) || !config.entities.length
+      || config.entities.some(row => !row || typeof row.entity !== 'string')) {
+      throw new Error('Specify history entities');
+    }
+    const hours = config.hours_to_show === undefined ? 24 : Number(config.hours_to_show);
+    if (!Number.isFinite(hours) || hours <= 0 || hours > 168) throw new Error('History range must be between 1 and 168 hours');
+    this.config = config;
+    this._hours = hours;
+    this._generation = (this._generation || 0)+1;
+    this._pending = false;
+    this._history = null;
+    this._chart = null;
+    this._hidden = new Set();
+    this._lastAttempt = 0;
+    if (!this.shadowRoot) this.attachShadow({mode:'open'});
+    const root = this.shadowRoot;
+    root.replaceChildren();
+    const el = (tag, text, parent) => {
+      const node = document.createElement(tag);
+      if (text !== undefined) node.textContent = text;
+      parent.append(node);
+      return node;
+    };
+    el('style', `
+      ha-card {display:block;padding:20px;color:var(--primary-text-color);}
+      h2 {font-size:20px;font-weight:500;margin:0 0 12px;}
+      ha-chart-base {display:block;}
+      p {font-size:12px;line-height:1.5;color:var(--secondary-text-color);margin:8px 0 0;}
+    `, root);
+    const card = el('ha-card', undefined, root);
+    el('h2', config.title || 'Recorded values', card);
+    this._plot = el('div', undefined, card);
+    this._info = el('p', 'Loading recorded readings…', card);
+    if (this._connected && this._hass) this._fetch();
+  }
+  getCardSize() { return 5; }
+  connectedCallback() {
+    this._connected = true;
+    if (!this._timer) this._timer = setInterval(() => this._fetch(), 60000);
+    if (this._hass) this._fetch();
+  }
+  disconnectedCallback() {
+    this._connected = false;
+    clearInterval(this._timer); this._timer = null;
+    this._generation = (this._generation || 0)+1;
+    this._pending = false;
+  }
+  set hass(hass) {
+    this._hass = hass;
+    if (this._chart) this._chart.hass = hass;
+    if (!this._history && !this._pending && !this._lastAttempt) this._fetch();
+  }
+  async _fetch() {
+    if (!this._connected || !this.config || !this._hass || this._pending) return;
+    this._pending = true;
+    const generation = this._generation;
+    const end = Date.now(), start = end-this._hours*3600000;
+    this._lastAttempt = end;
+    let loaded = false;
+    try {
+      await samsungEHSEnsureNativeChart();
+      if (generation !== this._generation || !this._connected) return;
+      const history = await this._hass.callWS({type:'history/history_during_period',
+        start_time:new Date(start).toISOString(), end_time:new Date(end).toISOString(),
+        entity_ids:this.config.entities.map(row => row.entity),
+        minimal_response:true, no_attributes:true, significant_changes_only:true, include_start_time_state:true});
+      if (generation !== this._generation || !this._connected) return;
+      if (!history || Array.isArray(history) || typeof history !== 'object') throw new Error('Invalid history response');
+      this._start = start; this._end = end;
+      this._history = this.config.entities.map(row => ({...row,
+        unit:this._hass.states[row.entity]?.attributes?.unit_of_measurement || '',
+        samples:samsungEHSRawSamples(history[row.entity], start, end)}));
+      const count = this._history.reduce((sum, series) => sum+series.samples.filter(point => point.value !== null).length, 0);
+      this._info.textContent = count ? `${count.toLocaleString()} recorded states · no averaging` : 'No numeric history available. Check Recorder for these entities.';
+      loaded = true;
+    } catch (error) {
+      if (generation === this._generation && this._connected) {
+        this._info.textContent = 'Chart or history could not be loaded. Retrying in one minute.';
+      }
+    } finally {
+      if (generation === this._generation) this._pending = false;
+    }
+    if (loaded) this._draw();
+  }
+  _draw() {
+    if (!this._history) return;
+    const style = getComputedStyle(this);
+    const fallback = ['#0288d1','#f39c12','#8e44ad','#16a085'];
+    const aligned = samsungEHSAlignHistory(this._history);
+    this._series = this._history.map((series, index) => ({
+      id:series.entity, name:series.name || series.entity, type:'bar',
+      stack:this.config.stacked === false ? undefined : 'readings',
+      color:style.getPropertyValue(`--graph-color-${index+1}`).trim()
+        || style.getPropertyValue(`--color-${index+1}`).trim() || fallback[index%fallback.length],
+      barMaxWidth:40, barMinWidth:1,
+      // Values are recorded states held until the next update; no statistics.
+      data:aligned[index],
+    }));
+    const units = new Set(this._history.map(series => series.unit));
+    if (!this._chart) {
+      this._chart = document.createElement('ha-chart-base');
+      this._chart.height = '280px';
+      this._chart.setAttribute('chart-type','bar');
+      this._chart.addEventListener('dataset-hidden', event => this._hidden.add(event.detail.id));
+      this._chart.addEventListener('dataset-unhidden', event => this._hidden.delete(event.detail.id));
+    }
+    this._chart.hass = this._hass;
+    this._chart.options = {
+      animation:false,
+      xAxis:{type:'time',min:new Date(this._start),max:new Date(this._end)},
+      yAxis:{type:'value',name:units.size === 1 ? this._history[0].unit : '', splitLine:{show:true}},
+      grid:{left:1,right:1,top:25,bottom:0,containLabel:true},
+      legend:{type:'custom',data:this._series.map(series => ({id:series.id,name:series.name}))},
+      tooltip:{trigger:'axis',renderMode:'html',confine:true,axisPointer:{type:'shadow',snap:true},
+        formatter:params => this._tooltip(params)},
+    };
+    this._chart.data = this._series;
+    if (!this._chart.parentNode) this._plot.append(this._chart);
+  }
+  _tooltip(params) {
+    const items = Array.isArray(params) ? params : [params];
+    const time = Number(items[0]?.axisValue ?? items[0]?.value?.[0]);
+    if (!Number.isFinite(time)) return null;
+    const language = this._hass.locale?.language || this._hass.language;
+    const timeZone = this._hass.locale?.time_zone === 'local' ? undefined : this._hass.config?.time_zone;
+    const clock = new Intl.DateTimeFormat(language, {timeZone,month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    const number = new Intl.NumberFormat(language, {maximumFractionDigits:4});
+    const body = document.createElement('div');
+    body.style.maxWidth = '300px';
+    const title = document.createElement('div');
+    title.textContent = clock.format(new Date(time));
+    title.style.fontWeight = 'bold';
+    body.append(title);
+    let count = 0;
+    this._history.forEach((series,index) => {
+      if (this._hidden.has(series.entity)) return;
+      // Same fallback as HA history tooltips: last recorded state at/before hover.
+      const point = samsungEHSLastSample(series.samples,time);
+      if (!point) return;
+      const row = document.createElement('div');
+      row.style.marginTop = '6px';
+      const marker = document.createElement('ha-chart-tooltip-marker');
+      marker.color = this._series[index].color;
+      row.append(marker);
+      const label = document.createElement('span');
+      const value = point.value === null ? 'unavailable' : `${number.format(point.value)}${series.unit ? ' '+series.unit : ''}`;
+      label.textContent = ` ${series.name || series.entity}: ${value}`;
+      row.append(label);
+      if (point.time !== time) {
+        const timestamp = document.createElement('div');
+        timestamp.style.fontSize = '11px';
+        timestamp.style.opacity = '0.7';
+        timestamp.textContent = `Recorded ${clock.format(new Date(point.time))}`;
+        row.append(timestamp);
+      }
+      body.append(row);
+      count++;
+    });
+    return count ? body : null;
+  }
+}
+if (!customElements.get('samsung-ehs-history-bar-card')) {
+  customElements.define('samsung-ehs-history-bar-card', SamsungEHSHistoryBarCard);
+}
+window.customCards.push({type:'samsung-ehs-history-bar-card', name:'Samsung EHS History Bars',
+  description:'Raw recorded values using Home Assistant’s native stacked bar chart and shared tooltip.'});

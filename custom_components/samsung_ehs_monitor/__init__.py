@@ -211,7 +211,7 @@ async def async_setup(hass: HomeAssistant, config) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = SamsungEHSCoordinator(hass, entry)
     try:
-        coordinator.client = await async_create_client(hass, entry)
+        coordinator.client = await async_create_client(hass, entry.data)
     except SmartThingsAuthError as exc:
         raise ConfigEntryAuthFailed(str(exc)) from exc
     except SmartThingsError as exc:
@@ -246,7 +246,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    # OAuth token rotation updates entry.data; it must not reload the integration.
+    # Only changed options require a reload; reconfiguration reloads explicitly.
     coordinator = hass.data.get(DOMAIN, {}).get(entry.entry_id)
     if coordinator is not None and dict(entry.options) != coordinator.configured_options:
         await hass.config_entries.async_reload(entry.entry_id)

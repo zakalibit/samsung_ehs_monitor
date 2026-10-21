@@ -110,9 +110,10 @@ views:
             name: Estimated thermal output
   - title: Trends
     path: trends
-    icon: mdi:chart-line
+    icon: mdi:chart-bar
     cards:
-      - type: history-graph
+      - type: custom:samsung-ehs-history-bar-card
+        stacked: true
         title: Electrical input and estimated heat · 24 hours
         hours_to_show: 24
         entities:
@@ -120,19 +121,22 @@ views:
             name: Electrical input · kW
           - entity: sensor.samsung_ehs_monitor_estimated_thermal_output
             name: Estimated heat output · kW
-      - type: history-graph
+      - type: custom:samsung-ehs-history-bar-card
+        stacked: true
         title: Outdoor temperature · 24 hours
         hours_to_show: 24
         entities:
           - entity: sensor.samsung_ehs_monitor_outdoor_temperature
             name: Outdoors
-      - type: history-graph
+      - type: custom:samsung-ehs-history-bar-card
+        stacked: true
         title: Water flow · 24 hours
         hours_to_show: 24
         entities:
           - entity: sensor.samsung_ehs_monitor_water_flow_rate
             name: Flow rate
-      - type: history-graph
+      - type: custom:samsung-ehs-history-bar-card
+        stacked: true
         title: Compressor frequency · 24 hours
         hours_to_show: 24
         entities:
@@ -140,13 +144,15 @@ views:
             name: Actual
           - entity: sensor.samsung_ehs_monitor_compressor_target_frequency
             name: Target
-      - type: history-graph
+      - type: custom:samsung-ehs-history-bar-card
+        stacked: true
         title: Pump speed · 24 hours
         hours_to_show: 24
         entities:
           - entity: sensor.samsung_ehs_monitor_circulation_pump_speed
             name: Pump speed
-      - type: history-graph
+      - type: custom:samsung-ehs-history-bar-card
+        stacked: true
         title: Discharge gas temperature · 24 hours
         hours_to_show: 24
         entities:
