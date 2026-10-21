@@ -133,23 +133,59 @@ class SamsungEHSFlowReturnRow extends HTMLElement {
   }
 
   set hass(hass) {
+    this.renderValues(hass, [['entity', '°C'], ['return_entity', '°C']]);
+  }
+
+  renderValues(hass, fields) {
     if (!this.config) return;
-    const format = entityId => {
+    const format = (entityId, fallbackUnit, precision = 1) => {
       const state = hass.states[entityId];
-      if (!state || ['unknown', 'unavailable', ''].includes(state.state)) return '—';
+      if (!state || typeof state.state !== 'string' || state.state.trim() === ''
+        || ['unknown', 'unavailable'].includes(state.state)) return '—';
       const value = Number(state.state);
       if (!Number.isFinite(value)) return '—';
-      const temperature = new Intl.NumberFormat(hass.locale?.language || hass.language, {
-        maximumFractionDigits: 1,
+      const reading = new Intl.NumberFormat(hass.locale?.language || hass.language, {
+        maximumFractionDigits: precision,
       }).format(value);
-      return `${temperature}${state.attributes.unit_of_measurement || '°C'}`;
+      return `${reading}${state.attributes?.unit_of_measurement || fallbackUnit}`;
     };
     this.shadowRoot.querySelector('.values').textContent =
-      `${format(this.config.entity)} / ${format(this.config.return_entity)}`;
+      fields.map(([key, unit, precision]) => format(this.config[key], unit, precision)).join(' / ');
   }
 }
 if (!customElements.get('samsung-ehs-flow-return-row')) {
   customElements.define('samsung-ehs-flow-return-row', SamsungEHSFlowReturnRow);
+}
+
+class SamsungEHSPowerRow extends SamsungEHSFlowReturnRow {
+  setConfig(config) {
+    super.setConfig({...config, name:config.name || 'Power instant/day total',
+      icon:config.icon || 'mdi:flash'});
+  }
+
+  set hass(hass) {
+    this.renderValues(hass, [['entity', 'W'], ['return_entity', 'kWh', 2]]);
+  }
+}
+if (!customElements.get('samsung-ehs-power-row')) {
+  customElements.define('samsung-ehs-power-row', SamsungEHSPowerRow);
+}
+
+class SamsungEHSCompressorRow extends SamsungEHSFlowReturnRow {
+  setConfig(config) {
+    if (!config.discharge_entity || !config.pump_entity) {
+      throw new Error('Specify compressor frequency, discharge temperature and pump speed entities');
+    }
+    super.setConfig({...config, return_entity:config.discharge_entity,
+      name:config.name || 'Compressor', icon:config.icon || 'mdi:sine-wave'});
+  }
+
+  set hass(hass) {
+    this.renderValues(hass, [['entity', 'Hz'], ['discharge_entity', '°C'], ['pump_entity', '%']]);
+  }
+}
+if (!customElements.get('samsung-ehs-compressor-row')) {
+  customElements.define('samsung-ehs-compressor-row', SamsungEHSCompressorRow);
 }
 
 /* Samsung heating water law: endpoint interpolation, held flat outside the range. */

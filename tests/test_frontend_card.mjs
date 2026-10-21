@@ -9,6 +9,11 @@ class Element {
   replaceChildren() { this.children = []; }
   attachShadow() { this.shadowRoot = new Element('shadow'); }
   setAttribute(name, value) { this.attributes[name] = value; }
+  querySelector(selector) {
+    this.selectors ??= new Map();
+    if (!this.selectors.has(selector)) this.selectors.set(selector, new Element(selector));
+    return this.selectors.get(selector);
+  }
 }
 const elements = new Map();
 const context = vm.createContext({
@@ -100,3 +105,44 @@ for (const [role, value] of Object.entries({...settings, outdoor:5, actual_flow:
 weather.hass = fahrenheit;
 assert(Math.abs(Number(flatten(weather.shadowRoot).find(node => node.attributes['data-marker'] === 'target').attributes['data-value'])-31) < 1e-9);
 console.log('Weather curve Fahrenheit-to-Celsius normalization passed');
+
+const Compressor = elements.get('samsung-ehs-compressor-row');
+const compressor = new Compressor();
+compressor.setConfig({entity:'sensor.frequency', discharge_entity:'sensor.discharge', pump_entity:'sensor.pump'});
+const compressorHass = {language:'en', states:{
+  'sensor.frequency':{state:'40',attributes:{unit_of_measurement:'Hz'}},
+  'sensor.discharge':{state:'37',attributes:{unit_of_measurement:'°C'}},
+  'sensor.pump':{state:'65',attributes:{unit_of_measurement:'%'}},
+}};
+compressor.hass = compressorHass;
+assert.equal(compressor.shadowRoot.querySelector('.values').textContent, '40Hz / 37°C / 65%');
+assert.equal(compressor.shadowRoot.querySelector('.name').textContent, 'Compressor');
+compressorHass.states['sensor.frequency'].state = '0';
+compressorHass.states['sensor.discharge'].state = 'unavailable';
+compressorHass.states['sensor.pump'].state = '0';
+compressor.hass = compressorHass;
+assert.equal(compressor.shadowRoot.querySelector('.values').textContent, '0Hz / — / 0%');
+delete compressorHass.states['sensor.pump'];
+compressorHass.states['sensor.frequency'].state = 'NaN';
+compressor.hass = compressorHass;
+assert.equal(compressor.shadowRoot.querySelector('.values').textContent, '— / — / —');
+const Temperatures = elements.get('samsung-ehs-flow-return-row');
+const temperatures = new Temperatures();
+temperatures.setConfig({entity:'sensor.flow',return_entity:'sensor.return'});
+temperatures.hass = {language:'en',states:{'sensor.flow':{state:'31'},'sensor.return':{state:'27'}}};
+assert.equal(temperatures.shadowRoot.querySelector('.values').textContent, '31°C / 27°C');
+console.log('Compressor and temperature row formatting checks passed, including zero/missing readings');
+
+const PowerRow = elements.get('samsung-ehs-power-row');
+const powerRow = new PowerRow();
+powerRow.setConfig({entity:'sensor.power',return_entity:'sensor.day_energy'});
+const powerHass = {language:'en',states:{'sensor.power':{state:'1200',attributes:{unit_of_measurement:'W'}},
+  'sensor.day_energy':{state:'12.345',attributes:{unit_of_measurement:'kWh'}}}};
+powerRow.hass = powerHass;
+assert.equal(powerRow.shadowRoot.querySelector('.name').textContent, 'Power instant/day total');
+assert.equal(powerRow.shadowRoot.querySelector('.values').textContent, '1,200W / 12.35kWh');
+powerHass.states['sensor.power'].state = '0';
+powerHass.states['sensor.day_energy'].state = 'unavailable';
+powerRow.hass = powerHass;
+assert.equal(powerRow.shadowRoot.querySelector('.values').textContent, '0W / —');
+console.log('Power instant/day total formatting checks passed');

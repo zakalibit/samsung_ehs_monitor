@@ -90,6 +90,23 @@ class DashboardTests(unittest.IsolatedAsyncioTestCase):
         config = self.scope['build_dashboard'](template, sensors, 'EHS')
         self.assertEqual(config['views'][0]['cards'], [])
 
+    def test_compressor_row_resolves_all_three_ids_and_omits_disabled_sources(self):
+        template = {'views': [{'cards': [{'type': 'entities', 'entities': [{
+            'type': 'custom:samsung-ehs-compressor-row', 'entity': 'compressor_frequency',
+            'discharge_entity': 'discharge_temperature', 'pump_entity': 'circulation_pump_speed',
+        }]}]}]}
+        sensors = {'compressor_frequency': 'sensor.kitchen_compressor',
+                   'discharge_temperature': 'sensor.renamed_discharge',
+                   'circulation_pump_speed': 'sensor.renamed_pump'}
+        config = self.scope['build_dashboard'](template, sensors, 'EHS')
+        row = config['views'][0]['cards'][0]['entities'][0]
+        self.assertEqual(row['entity'], 'sensor.kitchen_compressor')
+        self.assertEqual(row['discharge_entity'], 'sensor.renamed_discharge')
+        self.assertEqual(row['pump_entity'], 'sensor.renamed_pump')
+        for missing in sensors:
+            available = {key: value for key, value in sensors.items() if key != missing}
+            self.assertEqual(self.scope['build_dashboard'](template, available, 'EHS')['views'][0]['cards'], [])
+
     def test_log_template_uses_registered_sensor_after_rename(self):
         template = {'views': [{'cards': [{'type': 'markdown',
                     'content': "{{ state_attr('__FAILURE_LOG_ENTITY__', 'entries') }}"}]}]}
