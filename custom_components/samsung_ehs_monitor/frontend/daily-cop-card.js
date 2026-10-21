@@ -151,3 +151,153 @@ class SamsungEHSFlowReturnRow extends HTMLElement {
 if (!customElements.get('samsung-ehs-flow-return-row')) {
   customElements.define('samsung-ehs-flow-return-row', SamsungEHSFlowReturnRow);
 }
+
+/* Samsung heating water law: endpoint interpolation, held flat outside the range. */
+function samsungEHSWaterLaw(values) {
+  const finite = value => typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= 200;
+  const cold = values.outdoor_cold, warm = values.outdoor_warm;
+  if (!finite(cold) || !finite(warm)) return {error:'Waiting for outdoor endpoints: FSV 2011 and 2012.'};
+  if (cold >= warm) return {error:'Invalid outdoor endpoints: FSV 2011 must be lower than 2012.'};
+  const curves = [1, 2].flatMap(id => {
+    const high = values[`wl${id}_cold`], low = values[`wl${id}_warm`];
+    if (!finite(high) || !finite(low) || high < low) return [];
+    return [{id, high, low, at: outdoor => {
+      const fraction = Math.max(0, Math.min(1, (outdoor-cold)/(warm-cold)));
+      return high + fraction*(low-high);
+    }}];
+  });
+  if (!curves.length) return {error:'Waiting for valid flow endpoints: FSV 2021/2022 (WL1) or 2031/2032 (WL2).'};
+  const selected = [1, 2].includes(values.selected) ? values.selected : null;
+  return {cold, warm, curves, selected, active:curves.find(curve => curve.id === selected)};
+}
+
+class SamsungEHSWeatherCurveCard extends HTMLElement {
+  setConfig(config) {
+    if (!Array.isArray(config.entities) || config.entities.some(row => !row
+      || typeof row.entity !== 'string' || typeof row.role !== 'string')) {
+      throw new Error('Specify the water-law sensor entities and roles');
+    }
+    this.config = config;
+    this.lastValues = undefined;
+    if (!this.shadowRoot) this.attachShadow({mode:'open'});
+  }
+  getCardSize() { return 5; }
+  set hass(hass) {
+    if (!this.config) return;
+    const values = {};
+    for (const row of this.config.entities) {
+      const entity = hass.states[row.entity];
+      const state = entity?.state;
+      let value = typeof state === 'string' && state.trim() !== '' ? Number(state) : NaN;
+      if (row.role !== 'selected' && entity?.attributes?.unit_of_measurement === '°F') {
+        value = (value-32)*5/9;
+      }
+      values[row.role] = Number.isFinite(value) && Math.abs(value) <= 200 ? value : null;
+    }
+    const signature = JSON.stringify(values);
+    if (signature === this.lastValues) return;
+    this.lastValues = signature;
+    const root = this.shadowRoot;
+    root.replaceChildren();
+    const el = (tag, text, parent) => {
+      const node = document.createElement(tag);
+      if (text !== undefined) node.textContent = text;
+      if (parent) parent.append(node);
+      return node;
+    };
+    el('style', `
+      ha-card {display:block;box-sizing:border-box;padding:20px;color:var(--primary-text-color);}
+      h2 {font-size:20px;font-weight:500;margin:0 0 8px;}
+      p {font-size:13px;line-height:1.5;margin:8px 0;}
+      .note {font-size:12px;color:var(--secondary-text-color);}
+      svg {display:block;width:100%;height:auto;}
+      text {fill:var(--secondary-text-color);font:11px sans-serif;}
+      .legend {display:flex;gap:14px;flex-wrap:wrap;font-size:12px;margin-top:8px;}
+    `, root);
+    const card = el('ha-card', undefined, root);
+    el('h2', this.config.title || 'Weather compensation · water law', card);
+    const model = samsungEHSWaterLaw(values);
+    if (model.error) { el('p', model.error, card); return; }
+    const {cold, warm, curves, selected, active} = model;
+    const outdoor = values.outdoor, actual = values.actual_flow;
+    const hasOutdoor = Number.isFinite(outdoor), hasActual = Number.isFinite(actual);
+    const format = value => Number(value.toFixed(1));
+    const target = active && hasOutdoor ? active.at(outdoor) : null;
+    let summary = selected ? `WL${selected}` : 'Active curve unavailable (FSV 2041)';
+    if (selected && !active) summary += ' endpoints unavailable';
+    if (hasOutdoor) summary += ` · ${format(outdoor)}°C outdoors`;
+    else summary += ' · Outdoor temperature unavailable';
+    if (target !== null) summary += ` → ${format(target)}°C base target`;
+    if (hasActual) summary += ` · ${format(actual)}°C actual flow`;
+    el('p', summary, card);
+    const xMin = Math.min(cold-5, hasOutdoor ? outdoor-2 : cold-5);
+    const xMax = Math.max(warm+5, hasOutdoor ? outdoor+2 : warm+5);
+    const flowValues = curves.flatMap(curve => [curve.high, curve.low]);
+    if (hasActual && hasOutdoor) flowValues.push(actual);
+    const yMin = Math.floor((Math.min(...flowValues)-5)/5)*5;
+    const yMax = Math.ceil((Math.max(...flowValues)+5)/5)*5;
+    const x = value => 52+(value-xMin)/(xMax-xMin)*370;
+    const y = value => 220-(value-yMin)/(yMax-yMin)*180;
+    const ns = 'http://www.w3.org/2000/svg';
+    const draw = (tag, attrs, parent, text) => {
+      const node = document.createElementNS(ns, tag);
+      for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
+      if (text !== undefined) node.textContent = text;
+      parent.append(node);
+      return node;
+    };
+    const svg = draw('svg', {viewBox:'0 0 450 275', role:'img', 'aria-label':'Outdoor temperature versus target flow-water temperature'}, card);
+    const ticks = (min, max) => {
+      const rough = (max-min)/4;
+      const scale = 10 ** Math.floor(Math.log10(rough));
+      const step = [1,2,5,10].find(value => value*scale >= rough)*scale;
+      const result = [];
+      for (let value=Math.ceil(min/step)*step; value<=max; value+=step) result.push(value);
+      return result;
+    };
+    for (const flow of ticks(yMin, yMax)) {
+      draw('line', {x1:52,y1:y(flow),x2:422,y2:y(flow),stroke:'var(--divider-color)'}, svg);
+      draw('text', {x:44,y:y(flow)+4,'text-anchor':'end'}, svg, format(flow));
+    }
+    for (const ambient of ticks(xMin, xMax)) {
+      draw('text', {x:x(ambient),y:239,'text-anchor':'middle'}, svg, format(ambient));
+    }
+    draw('text', {x:52,y:22}, svg, 'Flow water (°C)');
+    draw('text', {x:237,y:265,'text-anchor':'middle'}, svg, 'Outdoor temperature (°C)');
+    const colors = {1:'var(--primary-color, #03a9f4)',2:'var(--accent-color, #ff9800)'};
+    const legend = el('div', undefined, card);
+    legend.className = 'legend';
+    for (const curve of curves) {
+      const color = colors[curve.id];
+      const points = [xMin,cold,warm,xMax].map(value => `${x(value)},${y(curve.at(value))}`).join(' ');
+      const line = draw('polyline', {points, fill:'none', stroke:color,
+        'stroke-width':curve.id === selected ? 3 : 2,
+        'stroke-dasharray':curve.id === selected ? 'none' : '6 4', 'data-curve':curve.id}, svg);
+      draw('title', {}, line, `WL${curve.id}: ${cold}°C outdoors → ${curve.high}°C flow; ${warm}°C outdoors → ${curve.low}°C flow`);
+      for (const [ambient, flow] of [[cold,curve.high],[warm,curve.low]]) {
+        draw('circle', {cx:x(ambient),cy:y(flow),r:3,fill:color}, svg);
+      }
+      el('span', `WL${curve.id}${curve.id === selected ? ' · active' : ''}`, legend).style.color = color;
+    }
+    if (hasOutdoor) {
+      draw('line', {x1:x(outdoor),y1:40,x2:x(outdoor),y2:220,
+        stroke:'var(--secondary-text-color)', 'stroke-dasharray':'3 4'}, svg);
+      if (target !== null) {
+        const point = draw('circle', {cx:x(outdoor),cy:y(target),r:5,fill:colors[selected],
+          'data-marker':'target','data-value':target}, svg);
+        draw('title', {}, point, `Base target: ${format(target)}°C at ${format(outdoor)}°C outdoors`);
+      }
+      if (hasActual) {
+        const point = draw('circle', {cx:x(outdoor),cy:y(actual),r:5,
+          fill:'var(--primary-text-color)', 'data-marker':'actual','data-value':actual}, svg);
+        draw('title', {}, point, `Actual flow: ${format(actual)}°C`);
+      }
+    }
+    el('p', 'Configured heating curve before controller offset. Dark marker: actual flow.', card).className = 'note';
+  }
+}
+if (!customElements.get('samsung-ehs-weather-curve-card')) {
+  customElements.define('samsung-ehs-weather-curve-card', SamsungEHSWeatherCurveCard);
+}
+window.customCards.push({type:'samsung-ehs-weather-curve-card', name:'Samsung EHS Weather Curve',
+  description:'Configured heating water law with current outdoor and flow-water temperatures.'});

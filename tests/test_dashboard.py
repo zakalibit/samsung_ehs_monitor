@@ -121,6 +121,19 @@ class DashboardTests(unittest.IsolatedAsyncioTestCase):
         subprocess.run([sys.executable, 'scripts/generate_dashboard_example.py', '--check'],
                        cwd=BASE.parents[1], check=True, capture_output=True)
 
+    def test_weather_curve_resolves_available_roles_after_renames(self):
+        template = {'views': [{'cards': [{'type': 'custom:samsung-ehs-weather-curve-card',
+            'entities': [{'entity': 'fsv_2011', 'role': 'outdoor_cold'},
+                         {'entity': 'fsv_2041', 'role': 'selected'},
+                         {'entity': 'outdoor_temperature', 'role': 'outdoor'}]}]}]}
+        config = self.scope['build_dashboard'](template, {
+            'fsv_2011': 'sensor.renamed_cold_endpoint',
+            'outdoor_temperature': 'sensor.kitchen_outdoor'}, 'EHS')
+        card = config['views'][0]['cards'][0]
+        self.assertEqual(card['entities'], [
+            {'entity': 'sensor.renamed_cold_endpoint', 'role': 'outdoor_cold'},
+            {'entity': 'sensor.kitchen_outdoor', 'role': 'outdoor'}])
+
     async def test_setup_unload_reload_and_opt_out(self):
         setup = self.scope['async_setup_dashboard']
         await setup(self.hass, self.entry)
@@ -163,7 +176,7 @@ class DashboardTests(unittest.IsolatedAsyncioTestCase):
         keys = re.findall(r'entity: (\w+)', (BASE / 'dashboard.yaml').read_text())
         self.assertGreater(len(keys), 25)
         for key in keys:
-            self.assertTrue(f'"{key}"' in sensor_source or key in {'cycle_indoor', 'cycle_outdoor'}, key)
+            self.assertTrue(f'"{key}"' in sensor_source or key.startswith('fsv_') or key in {'cycle_indoor', 'cycle_outdoor'}, key)
         self.assertNotIn('kitchen_', (BASE / 'dashboard.yaml').read_text())
 
 

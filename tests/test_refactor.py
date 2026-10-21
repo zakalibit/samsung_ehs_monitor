@@ -158,6 +158,10 @@ class SensorSetupTests(unittest.IsolatedAsyncioTestCase):
                      SensorDeviceClass=NS(TEMPERATURE='temperature', POWER='power', ENERGY='energy', FREQUENCY='frequency'),
                      SensorStateClass=NS(TOTAL_INCREASING='total_increasing', TOTAL='total', MEASUREMENT='measurement'))
         tree = ast.parse((external.BASE / 'sensor.py').read_text())
+        helper = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+                      and node.name == 'performance_value')
+        scope['number'] = external.p.number
+        exec(compile(ast.Module(body=[helper], type_ignores=[]), 'sensor.py', 'exec'), scope)
         setup = next(node for node in tree.body if isinstance(node, ast.AsyncFunctionDef)
                      and node.name == 'async_setup_entry')
         exec(compile(ast.Module(body=[setup], type_ignores=[]), 'sensor.py', 'exec'), scope)
@@ -169,6 +173,18 @@ class SensorSetupTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(by_key[key].native_value, value)
         coordinator.data['_decoded']['water_flow_temperature'] = None
         self.assertIsNone(by_key['water_flow_temperature'].native_value)
+        watts = by_key['electrical_input_power']
+        kilowatts = by_key['electrical_input_power_kw']
+        self.assertEqual(kilowatts._attr_native_unit_of_measurement, 'kW')
+        self.assertEqual(kilowatts._attr_native_unit_of_measurement,
+                         by_key['thermal_power']._attr_native_unit_of_measurement)
+        self.assertEqual(kilowatts._attr_state_class, 'measurement')
+        for value, expected in ((1200, 1.2), (0, 0), (None, None), (float('nan'), None)):
+            coordinator.data['_performance'] = {'electrical_input_power': value}
+            self.assertEqual(kilowatts.native_value, expected)
+        coordinator.data['_performance'] = {'electrical_input_power': 1200}
+        self.assertEqual(watts.native_value, 1200)
+
 
 
 class SensorTests(unittest.TestCase):
@@ -198,6 +214,17 @@ class SensorTests(unittest.TestCase):
                 self.assertIs(attributes['daily_history'], history)
                 self.assertIn('daily_history', sensor._unrecorded_attributes)
         coordinator.daily.history.assert_not_called()
+
+    def test_seven_day_sensors_explain_partial_coverage(self):
+        coordinator, _ = external.ExternalPowerTests().make()
+        coordinator.data['_performance'] = {'performance_7d_coverage': 12.5}
+        Sensor = self.sensor_class()
+        for key in ('estimated_heat_energy_7d', 'electrical_energy_7d', 'estimated_cop_7d'):
+            sensor = Sensor(coordinator, key, key, lambda data: None)
+            attributes = sensor.extra_state_attributes
+            self.assertEqual(attributes['coverage_percent'], 12.5)
+            self.assertEqual(attributes['window_hours'], 168)
+            self.assertIn('missing periods excluded', attributes['calculation'])
 
     def test_sensor_programming_errors_are_not_returned_as_unknown(self):
         coordinator, _ = external.ExternalPowerTests().make()

@@ -50,6 +50,27 @@ views:
             icon: mdi:heat-pump
           - entity: sensor.samsung_ehs_monitor_net_thermal_power
             name: Net heat flow · includes defrost
+      - type: custom:samsung-ehs-weather-curve-card
+        title: Weather compensation · water law
+        entities:
+          - entity: sensor.samsung_ehs_monitor_fsv_2011
+            role: outdoor_cold
+          - entity: sensor.samsung_ehs_monitor_fsv_2012
+            role: outdoor_warm
+          - entity: sensor.samsung_ehs_monitor_fsv_2021
+            role: wl1_cold
+          - entity: sensor.samsung_ehs_monitor_fsv_2022
+            role: wl1_warm
+          - entity: sensor.samsung_ehs_monitor_fsv_2031
+            role: wl2_cold
+          - entity: sensor.samsung_ehs_monitor_fsv_2032
+            role: wl2_warm
+          - entity: sensor.samsung_ehs_monitor_fsv_2041
+            role: selected
+          - entity: sensor.samsung_ehs_monitor_outdoor_temperature
+            role: outdoor
+          - entity: sensor.samsung_ehs_monitor_water_flow_temperature
+            role: actual_flow
       - type: entities
         title: Today · external power sensor
         show_header_toggle: false
@@ -67,7 +88,7 @@ views:
         entity: sensor.samsung_ehs_monitor_estimated_cop_today
         days_to_show: 14
       - type: entities
-        title: Last 7 days · matched energy window
+        title: Last 7 days · available matched data
         show_header_toggle: false
         entities:
           - entity: sensor.samsung_ehs_monitor_estimated_heat_energy_7d
@@ -107,6 +128,14 @@ views:
     path: trends
     icon: mdi:chart-line
     cards:
+      - type: history-graph
+        title: Electrical input and estimated heat · 24 hours
+        hours_to_show: 24
+        entities:
+          - entity: sensor.samsung_ehs_monitor_electrical_input_power_kw
+            name: Electrical input · kW
+          - entity: sensor.samsung_ehs_monitor_estimated_thermal_output
+            name: Estimated heat output · kW
       - type: history-graph
         title: Outdoor temperature · 24 hours
         hours_to_show: 24

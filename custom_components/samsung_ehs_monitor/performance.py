@@ -105,7 +105,7 @@ class RollingPerformance:
     Interpolate both boundary energies linearly within each poll interval.
     Negative counter jumps and long gaps invalidate that interval. Missing heat
     can be recovered from late snapshots within the retained 30-minute window.
-    A complete window is required before publishing any seven-day total or COP.
+    Publish totals over available valid paired intervals, with window coverage.
     """
 
     def __init__(self, saved=None):
@@ -195,13 +195,13 @@ class RollingPerformance:
             heat += q * fraction
             electricity += e * fraction
             seconds += overlap
-        complete = seconds >= WEEK - 0.001
+        has_data = seconds > 0
         return {
             "performance_7d_coverage": round(min(100, seconds / WEEK * 100), 3),
-            "estimated_heat_energy_7d": round(heat, 3) if complete else None,
-            "electrical_energy_7d": round(electricity, 3) if complete else None,
+            "estimated_heat_energy_7d": round(heat, 3) if has_data else None,
+            "electrical_energy_7d": round(electricity, 3) if has_data else None,
             "estimated_cop_7d": round(heat / electricity, 2)
-            if complete and electricity > 0 and heat > 0 else None,
+            if has_data and electricity > 0 and heat > 0 else None,
         }
 
     def saved(self):

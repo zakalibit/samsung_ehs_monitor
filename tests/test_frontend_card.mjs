@@ -4,7 +4,7 @@ const fs = await import('node:fs');
 const vm = await import('node:vm');
 
 class Element {
-  constructor(tag = 'element') { this.tag = tag; this.children = []; this.attributes = {}; }
+  constructor(tag = 'element') { this.tag = tag; this.children = []; this.attributes = {}; this.style = {}; }
   append(child) { this.children.push(child); }
   replaceChildren() { this.children = []; }
   attachShadow() { this.shadowRoot = new Element('shadow'); }
@@ -46,3 +46,57 @@ card.setConfig({entity:'sensor.daily'});
 card.hass = {states:{'sensor.daily':{attributes:{power_source:'sensor.meter', daily_history:[valid]}, state:'4'}}};
 assert(flatten(card.shadowRoot).some(node => node.textContent === '4.00'));
 console.log(`Frontend card checks passed (${cases} history cases, missing entity and reconfiguration)`);
+
+const waterLaw = context.samsungEHSWaterLaw;
+const settings = {outdoor_cold:-10, outdoor_warm:15, wl1_cold:40, wl1_warm:25,
+  wl2_cold:50, wl2_warm:35, selected:1};
+let model = waterLaw(settings);
+for (const [outdoor, expected] of [[-20,40],[-10,40],[2.5,32.5],[15,25],[25,25]]) {
+  assert.equal(model.active.at(outdoor), expected);
+}
+assert.equal(waterLaw({...settings, selected:2}).active.at(5), 41);
+assert.equal(waterLaw({...settings, selected:null}).active, undefined);
+assert.equal(waterLaw({...settings, selected:2, wl2_cold:null}).active, undefined);
+for (const changed of [{outdoor_cold:null}, {outdoor_cold:15}, {outdoor_cold:20},
+  {outdoor_cold:-1e308}, {outdoor_warm:NaN}, {wl1_cold:20, wl2_cold:null},
+  {wl1_cold:Infinity, wl2_warm:null}]) {
+  assert(waterLaw({...settings, ...changed}).error);
+}
+const Weather = elements.get('samsung-ehs-weather-curve-card');
+const weatherConfig = {entities:Object.keys({...settings, outdoor:5, actual_flow:34})
+  .map(role => ({entity:`sensor.${role}`, role}))};
+function weatherState(changes = {}) {
+  return {states:Object.fromEntries(Object.entries({...settings, outdoor:5, actual_flow:34, ...changes})
+    .map(([role, value]) => [`sensor.${role}`, {state:String(value)}]))};
+}
+const weather = new Weather();
+weather.setConfig(weatherConfig);
+weather.hass = weatherState();
+let nodes = flatten(weather.shadowRoot);
+assert.equal(nodes.filter(node => node.attributes['data-curve']).length, 2);
+assert.equal(nodes.find(node => node.attributes['data-marker'] === 'target').attributes['data-value'], '31');
+assert.equal(nodes.find(node => node.attributes['data-marker'] === 'actual').attributes['data-value'], '34');
+weather.hass = weatherState({selected:2, outdoor:-20});
+nodes = flatten(weather.shadowRoot);
+assert.equal(nodes.find(node => node.attributes['data-marker'] === 'target').attributes['data-value'], '50');
+weather.hass = weatherState({selected:'unavailable'});
+assert(!flatten(weather.shadowRoot).some(node => node.attributes['data-marker'] === 'target'));
+for (const changes of [{outdoor:'unknown'}, {actual_flow:'unavailable'}, {outdoor_cold:'bad'},
+  {outdoor_cold:'1e308'}, {outdoor_warm:Infinity}, {outdoor_cold:15}, {wl1_warm:null, wl2_cold:null}]) {
+  assert.doesNotThrow(() => { weather.hass = weatherState(changes); });
+  for (const node of flatten(weather.shadowRoot)) {
+    for (const value of Object.values(node.attributes)) assert.doesNotMatch(String(value), /NaN|Infinity/);
+  }
+}
+weather.hass = {states:{}};
+assert(flatten(weather.shadowRoot).some(node => node.textContent?.includes('FSV 2011 and 2012')));
+console.log('Weather curve checks passed: interpolation, clamping, WL selection, current markers and missing/invalid settings');
+
+const fahrenheit = weatherState();
+for (const [role, value] of Object.entries({...settings, outdoor:5, actual_flow:34})) {
+  if (role === 'selected') continue;
+  fahrenheit.states[`sensor.${role}`] = {state:String(value*9/5+32), attributes:{unit_of_measurement:'°F'}};
+}
+weather.hass = fahrenheit;
+assert(Math.abs(Number(flatten(weather.shadowRoot).find(node => node.attributes['data-marker'] === 'target').attributes['data-value'])-31) < 1e-9);
+console.log('Weather curve Fahrenheit-to-Celsius normalization passed');

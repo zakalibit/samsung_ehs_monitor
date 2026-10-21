@@ -9,6 +9,15 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .decoder import field as read, latest
+from .performance import number
+
+
+def performance_value(data, key):
+    values = data.get("_performance", {})
+    if key == "electrical_input_power_kw":
+        watts = values.get("electrical_input_power")
+        return watts / 1000 if number(watts) else None
+    return values.get(key)
 
 
 def power(data, field):
@@ -50,6 +59,13 @@ class SamsungEHSSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self):
+        if self.key in {"estimated_heat_energy_7d", "electrical_energy_7d", "estimated_cop_7d"}:
+            return {
+                "window_hours": 168,
+                "coverage_percent": self.coordinator.data.get("_performance", {}).get("performance_7d_coverage"),
+                "electricity_source": "Samsung accumulated energy counter",
+                "calculation": "energy over available valid paired intervals; missing periods excluded",
+            }
         if self.key in {"estimated_cop_today", "estimated_heat_energy_today", "electrical_energy_today", "daily_performance_coverage"}:
             attributes = {
                 "power_source": self.coordinator.power_sensor,
@@ -59,7 +75,7 @@ class SamsungEHSSensor(CoordinatorEntity, SensorEntity):
             if self.key == "estimated_cop_today":
                 attributes["daily_history"] = self.coordinator.data.get("_daily_history", [])
             return attributes
-        if self.key in {"electrical_input_power", "estimated_cop"} and self.coordinator.power_sensor:
+        if self.key in {"electrical_input_power", "electrical_input_power_kw", "estimated_cop"} and self.coordinator.power_sensor:
             state = self.hass.states.get(self.coordinator.power_sensor)
             return {
                 "power_source": self.coordinator.power_sensor,
@@ -67,7 +83,7 @@ class SamsungEHSSensor(CoordinatorEntity, SensorEntity):
                 "electricity_7d_source": "Samsung accumulated energy counter",
                 **(self.coordinator.data.get("_cop_match", {}) if self.key == "estimated_cop" else {}),
             }
-        if self.key in {"energy", "deltaEnergy", "power_raw", "electrical_input_power", "estimated_cop"}:
+        if self.key in {"energy", "deltaEnergy", "power_raw", "electrical_input_power", "electrical_input_power_kw", "estimated_cop"}:
             report = read(self.coordinator.data, "main", "powerConsumptionReport", "powerConsumption")
             report = report if isinstance(report, dict) else {}
             return {
@@ -180,6 +196,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         ("estimated_cop_today", "Estimated COP today", None, None),
         ("daily_performance_coverage", "Daily performance coverage", "%", None),
         ("electrical_input_power", "Electrical input power", "W", SensorDeviceClass.POWER),
+        ("electrical_input_power_kw", "Electrical input power kW", "kW", SensorDeviceClass.POWER),
         ("estimated_cop", "Estimated COP", None, None),
         ("net_thermal_power", "Net thermal power", "kW", SensorDeviceClass.POWER),
         ("estimated_heat_energy_7d", "Estimated heat energy 7d", "kWh", SensorDeviceClass.ENERGY),
@@ -190,7 +207,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     for key, name, unit, device_class in performance:
         entities.append(SamsungEHSSensor(
             coordinator, key, name,
-            lambda d, k=key: d.get("_performance", {}).get(k),
+            lambda d, k=key: performance_value(d, k),
             unit=unit, device_class=device_class,
             state_class=SensorStateClass.MEASUREMENT if unit != "kWh" and key != "estimated_cop_today" else None,
         ))
