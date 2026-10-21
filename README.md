@@ -71,7 +71,7 @@ For an automatically installed dashboard, enable **Create Samsung EHS dashboard*
 
 The At a glance card includes one Compressor row showing actual frequency / discharge temperature / circulation pump speed (for example, `40Hz / 37°C / 65%`). The separate Compressor and circulation card is omitted; detailed compressor, pump and discharge history remains in Trends.
 
-Estimated performance combines live readings and today's energy/COP in one card. Its Power instant/day total row shows electrical power / today's electricity over valid paired intervals (for example, `1200W / 12.34kWh`). Daily coverage remains available to calculations and the daily chart but is omitted from this summary card.
+Estimated performance combines live readings and today's energy/COP in one card. Its three paired rows show Power instant/day total (electrical input / today's electricity), Heat instant/day total (signed net heat flow / today's heat energy), and COP instant/day (live COP / today's ratio of energy). For example: `1,200W / 12.34kWh`, `4.8kW / 38.5kWh`, and `4 / 3.12`. Daily values use valid paired intervals. Daily coverage remains available to calculations and the daily chart but is omitted from this summary card.
 
 ## Weather compensation and power trends
 

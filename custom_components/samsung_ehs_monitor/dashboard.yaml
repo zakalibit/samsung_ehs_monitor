@@ -40,19 +40,21 @@ views:
         title: Estimated performance
         show_header_toggle: false
         entities:
-          - type: custom:samsung-ehs-power-row
+          - type: custom:samsung-ehs-performance-row
+            metric: power
             entity: electrical_input_power
             return_entity: electrical_energy_today
             name: Power instant/day total
-          - entity: estimated_cop
-            name: Estimated live COP
-            icon: mdi:heat-pump
-          - entity: net_thermal_power
-            name: Net heat flow · includes defrost
-          - entity: estimated_heat_energy_today
-            name: Estimated heat energy today
-          - entity: estimated_cop_today
-            name: Estimated COP today
+          - type: custom:samsung-ehs-performance-row
+            metric: heat
+            entity: net_thermal_power
+            return_entity: estimated_heat_energy_today
+            name: Heat instant/day total
+          - type: custom:samsung-ehs-performance-row
+            metric: cop
+            entity: estimated_cop
+            return_entity: estimated_cop_today
+            name: COP instant/day
       - type: custom:samsung-ehs-weather-curve-card
         title: Weather compensation · water law
         entities:

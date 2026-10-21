@@ -146,3 +146,21 @@ powerHass.states['sensor.day_energy'].state = 'unavailable';
 powerRow.hass = powerHass;
 assert.equal(powerRow.shadowRoot.querySelector('.values').textContent, '0W / —');
 console.log('Power instant/day total formatting checks passed');
+
+const PerformanceRow = elements.get('samsung-ehs-performance-row');
+for (const [metric, instant, day, expected] of [
+  ['power','1200','12.345','1,200W / 12.35kWh'],
+  ['heat','4.875','38.567','4.88kW / 38.57kWh'],
+  ['heat','-2.75','30.25','-2.75kW / 30.25kWh'],
+  ['cop','4.126','3.375','4.13 / 3.38'],
+]) {
+  const row = new PerformanceRow();
+  row.setConfig({metric,entity:'sensor.instant',return_entity:'sensor.today'});
+  const hass = {language:'en',states:{'sensor.instant':{state:instant},'sensor.today':{state:day}}};
+  row.hass = hass;
+  assert.equal(row.shadowRoot.querySelector('.values').textContent, expected);
+  hass.states['sensor.today'].state = 'unknown';
+  row.hass = hass;
+  assert(row.shadowRoot.querySelector('.values').textContent.endsWith(' / —'));
+}
+console.log('Paired instantaneous/daily power, signed heat and unitless COP checks passed');

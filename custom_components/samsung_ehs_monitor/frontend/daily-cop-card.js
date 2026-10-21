@@ -157,16 +157,32 @@ if (!customElements.get('samsung-ehs-flow-return-row')) {
   customElements.define('samsung-ehs-flow-return-row', SamsungEHSFlowReturnRow);
 }
 
-class SamsungEHSPowerRow extends SamsungEHSFlowReturnRow {
+class SamsungEHSPerformanceRow extends SamsungEHSFlowReturnRow {
   setConfig(config) {
-    super.setConfig({...config, name:config.name || 'Power instant/day total',
-      icon:config.icon || 'mdi:flash'});
+    const metric = config.metric || 'power';
+    if (!['power', 'heat', 'cop'].includes(metric)) throw new Error('Specify power, heat or cop');
+    const defaults = {
+      power:['Power instant/day total', 'mdi:flash'],
+      heat:['Heat instant/day total', 'mdi:heat-wave'],
+      cop:['COP instant/day', 'mdi:heat-pump'],
+    };
+    super.setConfig({...config, metric, name:config.name || defaults[metric][0],
+      icon:config.icon || defaults[metric][1]});
   }
 
   set hass(hass) {
-    this.renderValues(hass, [['entity', 'W'], ['return_entity', 'kWh', 2]]);
+    if (!this.config) return;
+    const metric = this.config.metric;
+    const unit = metric === 'power' ? 'W' : metric === 'heat' ? 'kW' : '';
+    this.renderValues(hass, [['entity', unit, metric === 'power' ? 1 : 2],
+      ['return_entity', metric === 'cop' ? '' : 'kWh', 2]]);
   }
 }
+if (!customElements.get('samsung-ehs-performance-row')) {
+  customElements.define('samsung-ehs-performance-row', SamsungEHSPerformanceRow);
+}
+// Preserve compatibility with manual dashboards using the earlier power-only row.
+class SamsungEHSPowerRow extends SamsungEHSPerformanceRow {}
 if (!customElements.get('samsung-ehs-power-row')) {
   customElements.define('samsung-ehs-power-row', SamsungEHSPowerRow);
 }
