@@ -275,11 +275,13 @@ class SamsungEHSWeatherCurveCard extends HTMLElement {
     const hasOutdoor = Number.isFinite(outdoor), hasActual = Number.isFinite(actual);
     const format = value => Number(value.toFixed(1));
     const target = active && hasOutdoor ? active.at(outdoor) : null;
-    let summary = selected ? `WL${selected}` : 'Active curve unavailable (FSV 2041)';
+    let summary = selected ? `WL${selected}` : `${curves.map(curve => 'WL'+curve.id).join(' / ')} · active curve not reported`;
     if (selected && !active) summary += ' endpoints unavailable';
     if (hasOutdoor) summary += ` · ${format(outdoor)}°C outdoors`;
     else summary += ' · Outdoor temperature unavailable';
     if (target !== null) summary += ` → ${format(target)}°C base target`;
+    else if (!selected && hasOutdoor) summary += ' → '+curves.map(curve =>
+      `WL${curve.id}: ${format(curve.at(outdoor))}°C`).join(' / ')+' base targets';
     if (hasActual) summary += ` · ${format(actual)}°C actual flow`;
     el('p', summary, card);
     const xMin = Math.min(cold-5, hasOutdoor ? outdoor-2 : cold-5);
@@ -324,7 +326,7 @@ class SamsungEHSWeatherCurveCard extends HTMLElement {
       const points = [xMin,cold,warm,xMax].map(value => `${x(value)},${y(curve.at(value))}`).join(' ');
       const line = draw('polyline', {points, fill:'none', stroke:color,
         'stroke-width':curve.id === selected ? 3 : 2,
-        'stroke-dasharray':curve.id === selected ? 'none' : '6 4', 'data-curve':curve.id}, svg);
+        'stroke-dasharray':!selected || curve.id === selected ? 'none' : '6 4', 'data-curve':curve.id}, svg);
       draw('title', {}, line, `WL${curve.id}: ${cold}°C outdoors → ${curve.high}°C flow; ${warm}°C outdoors → ${curve.low}°C flow`);
       for (const [ambient, flow] of [[cold,curve.high],[warm,curve.low]]) {
         draw('circle', {cx:x(ambient),cy:y(flow),r:3,fill:color}, svg);
@@ -338,6 +340,14 @@ class SamsungEHSWeatherCurveCard extends HTMLElement {
         const point = draw('circle', {cx:x(outdoor),cy:y(target),r:5,fill:colors[selected],
           'data-marker':'target','data-value':target}, svg);
         draw('title', {}, point, `Base target: ${format(target)}°C at ${format(outdoor)}°C outdoors`);
+      }
+      if (!selected) {
+        for (const curve of curves) {
+          const baseTarget = curve.at(outdoor);
+          const point = draw('circle', {cx:x(outdoor),cy:y(baseTarget),r:4,fill:colors[curve.id],
+            'data-marker':'curve-target','data-wl':curve.id,'data-value':baseTarget}, svg);
+          draw('title', {}, point, `WL${curve.id} base target: ${format(baseTarget)}°C at ${format(outdoor)}°C outdoors`);
+        }
       }
       if (hasActual) {
         const point = draw('circle', {cx:x(outdoor),cy:y(actual),r:5,

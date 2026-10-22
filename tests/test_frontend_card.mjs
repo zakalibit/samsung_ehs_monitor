@@ -105,6 +105,22 @@ weather.hass = {states:{}};
 assert(flatten(weather.shadowRoot).some(node => node.textContent?.includes('FSV 2011 and 2012')));
 console.log('Weather curve checks passed: interpolation, clamping, WL selection, current markers and missing/invalid settings');
 
+// Values and missing FSV 2041 reproduce the supplied SmartThings sample.
+const unselected = new Weather();
+unselected.setConfig({entities:weatherConfig.entities.filter(row=>row.role!=='selected')});
+unselected.hass=weatherState({wl2_cold:45,wl2_warm:30});
+const unselectedNodes=flatten(unselected.shadowRoot);
+assert.equal(unselectedNodes.filter(node=>node.attributes['data-curve']).length,2);
+assert(unselectedNodes.filter(node=>node.attributes['data-curve']).every(node=>node.attributes['stroke-dasharray']==='none'));
+const candidates=unselectedNodes.filter(node=>node.attributes['data-marker']==='curve-target');
+assert.deepEqual(candidates.map(node=>[node.attributes['data-wl'],node.attributes['data-value']]),[['1','31'],['2','36']]);
+assert(unselectedNodes.some(node=>node.textContent?.includes('active curve not reported')));
+assert(unselectedNodes.some(node=>node.textContent?.includes('WL1: 31°C / WL2: 36°C base targets')));
+assert(!unselectedNodes.some(node=>node.attributes['data-marker']==='target'));
+unselected.hass=weatherState({wl2_cold:45,wl2_warm:30,outdoor:'unknown'});
+assert(!flatten(unselected.shadowRoot).some(node=>node.attributes['data-marker']==='curve-target'));
+console.log('Sample water-law settings: both curves and target markers render without FSV 2041');
+
 const fahrenheit = weatherState();
 for (const [role, value] of Object.entries({...settings, outdoor:5, actual_flow:34})) {
   if (role === 'selected') continue;
