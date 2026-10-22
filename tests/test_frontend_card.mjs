@@ -16,7 +16,7 @@ class Element {
     return this.selectors.get(selector);
   }
 }
-const elements = new Map();
+const elements = new Map([['home-assistant',class extends Element {}]]);
 const timers = new Map();
 const timeouts = new Map();
 let timerId = 0;
@@ -32,7 +32,8 @@ const context = vm.createContext({
   setTimeout: (callback,delay) => { const id=++timerId; timeouts.set(id,{callback,delay}); return id; },
   clearTimeout: id => timeouts.delete(id),
 });
-vm.runInContext(fs.readFileSync(new URL('../custom_components/samsung_ehs_monitor/frontend/daily-cop-card.js', import.meta.url), 'utf8'), context);
+const frontendSource=fs.readFileSync(new URL('../custom_components/samsung_ehs_monitor/frontend/daily-cop-card.js', import.meta.url), 'utf8');
+vm.runInContext(frontendSource, context);
 const Card = elements.get('samsung-ehs-daily-cop-card');
 const flatten = node => [node, ...node.children.flatMap(flatten)];
 const valid = {date:'2026-10-20', heat_kwh:8, electricity_kwh:2, cop:4,
@@ -410,3 +411,41 @@ assert(hung._info.textContent.includes('Retrying'));
 hung.disconnectedCallback();
 assert.equal(timeouts.size,0);
 console.log('History recovery: draw errors, scheduled retry, backoff, reconnect, request timeout and timer cleanup passed');
+
+// Reproduce HA's startup race: an extra module runs first, then HA replaces
+// BOTH the registry and HTMLElement. A native whenDefined promise would hang.
+class BeforeHA {}
+class AfterHA {}
+const earlyElements=new Map();
+const readyElements=new Map();
+const startupTimers=[];
+const startup=vm.createContext({
+  HTMLElement:BeforeHA,window:{},
+  customElements:{get:name=>earlyElements.get(name),define:(name,ctor)=>earlyElements.set(name,ctor),
+    whenDefined:()=>{throw new Error('Must not wait on the obsolete registry');}},
+  setTimeout:(callback,delay)=>{assert.equal(delay,50);startupTimers.push(callback);},
+});
+vm.runInContext(frontendSource,startup);
+assert.equal(earlyElements.size,0); // No card definitions before the HA root exists.
+assert.equal(startupTimers.length,1);
+startupTimers.shift()(); // A slow startup keeps waiting without registering early.
+assert.equal(earlyElements.size,0);
+assert.equal(startupTimers.length,1);
+startup.HTMLElement=AfterHA;
+startup.customElements={get:name=>readyElements.get(name),define:(name,ctor)=>readyElements.set(name,ctor)};
+readyElements.set('home-assistant',class extends AfterHA {});
+startupTimers.shift()();
+const expectedCards=['samsung-ehs-daily-cop-card','samsung-ehs-flow-return-row',
+  'samsung-ehs-performance-row','samsung-ehs-power-row','samsung-ehs-compressor-row',
+  'samsung-ehs-weather-curve-card','samsung-ehs-history-bar-card'];
+for (const name of expectedCards) {
+  const ctor=readyElements.get(name);
+  assert(ctor,`${name} is registered in HA's replacement registry`);
+  assert(new ctor() instanceof AfterHA,`${name} uses the replacement HTMLElement`);
+  assert(!(new ctor() instanceof BeforeHA));
+}
+assert.equal(earlyElements.size,0);
+assert.equal(startupTimers.length,0);
+assert.equal(startup.window.customCards.length,3);
+assert.equal(timeouts.size,0); // A dashboard loaded after HA is ready needs no poll.
+console.log('Startup registry replacement: every card waits for HA and uses the new registry/HTMLElement');

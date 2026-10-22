@@ -4,13 +4,15 @@ from homeassistant.components.lovelace.const import LOVELACE_DATA
 from homeassistant.components.lovelace.resources import ResourceStorageCollection
 
 RESOURCE_PATH = "/samsung_ehs_monitor/daily-cop-card.js"
-RESOURCE_URL = f"{RESOURCE_PATH}?v=0.12.9"
+RESOURCE_URL = f"{RESOURCE_PATH}?v=0.12.10"
 
 
 async def async_register_resources(hass):
     """Maintain one versioned module, preserving unrelated dashboard resources."""
     # The frontend's module loader survives replacement of YAML resource collections
-    # by lovelace.reload_resources. The same URL is loaded only once by the browser.
+    # by lovelace.reload_resources. The bundle defers HTMLElement definitions until
+    # HA has installed its scoped registry; early definitions would be lost.
+    # The same URL is loaded only once by the browser.
     add_extra_js_url(hass, RESOURCE_URL)
     resources = hass.data[LOVELACE_DATA].resources
     # Storage resources are loaded lazily. Inspecting async_items before loading
