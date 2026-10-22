@@ -18,6 +18,7 @@ class Element {
 }
 const elements = new Map();
 const timers = new Map();
+const timeouts = new Map();
 let timerId = 0;
 const context = vm.createContext({
   HTMLElement: Element,
@@ -28,7 +29,8 @@ const context = vm.createContext({
   getComputedStyle: () => ({getPropertyValue: () => ''}),
   setInterval: (callback, period) => { const id=++timerId; timers.set(id,{callback,period}); return id; },
   clearInterval: id => timers.delete(id),
-  setTimeout, clearTimeout,
+  setTimeout: (callback,delay) => { const id=++timerId; timeouts.set(id,{callback,delay}); return id; },
+  clearTimeout: id => timeouts.delete(id),
 });
 vm.runInContext(fs.readFileSync(new URL('../custom_components/samsung_ehs_monitor/frontend/daily-cop-card.js', import.meta.url), 'utf8'), context);
 const Card = elements.get('samsung-ehs-daily-cop-card');
@@ -273,7 +275,12 @@ failedBars._hass={states:{},callWS:async()=>{ failures++; throw new Error('denie
 await failedBars._fetch();
 failedBars.hass=failedBars._hass;
 assert.equal(failures,1);
-assert(failedBars._info.textContent.includes('Retrying'));
+assert(failedBars._info.textContent.includes('Retrying in 5 seconds'));
+assert.equal(timeouts.get(failedBars._retryTimer).delay,5000);
+await failedBars._fetch();
+assert.equal(timeouts.get(failedBars._retryTimer).delay,10000);
+failedBars.disconnectedCallback();
+assert.equal(failedBars._retryTimer,null);
 const staleBars = new Bars();
 staleBars.setConfig({entities:[{entity:'sensor.power'}]});
 staleBars._connected=true;
@@ -356,3 +363,50 @@ assert.deepEqual(radius(separate[0],0),[4,4,0,0]);
 assert.deepEqual(radius(separate[1],0),[0,0,4,4]);
 assert(bars._chart.data.every(series=>series.barMaxWidth===50));
 console.log('Energy-style caps: positive/negative stack ends, gaps, zero and legend changes passed');
+
+const recovering = new Bars();
+recovering.setConfig({entities:[{entity:'sensor.power'}]});
+recovering._connected=true;
+recovering._hass={states:{},callWS:async()=>({'sensor.power':raw})};
+const draw=recovering._draw.bind(recovering);
+recovering._draw=()=>{throw new Error('Chart initialization race');};
+await recovering._fetch(); // A render failure must not escape as an unhandled rejection.
+assert(recovering._info.textContent.includes('Retrying in 5 seconds'));
+assert.equal(recovering._pending,false);
+recovering._draw=draw;
+const scheduled=timeouts.get(recovering._retryTimer);
+timeouts.delete(recovering._retryTimer);
+scheduled.callback();
+for (let i=0;i<10;i++) await Promise.resolve();
+assert(recovering._chart);
+assert.equal(recovering._retryTimer,null);
+assert.equal(recovering._retryDelay,5000);
+assert(!recovering._info.textContent.includes('Retrying'));
+recovering.disconnectedCallback();
+const offline=new Bars();
+offline.setConfig({entities:[{entity:'sensor.power'}]});
+offline._connected=true;
+let offlineRequests=0;
+const connectedHass={states:{},connected:true,callWS:async()=>{offlineRequests++;return {};}};
+offline.hass={...connectedHass,connected:false};
+assert.equal(offlineRequests,0);
+assert(offline._info.textContent.includes('reconnect'));
+offline.hass=connectedHass;
+for (let i=0;i<10;i++) await Promise.resolve();
+assert.equal(offlineRequests,1);
+offline.disconnectedCallback();
+const hung=new Bars();
+hung.setConfig({entities:[{entity:'sensor.power'}]});
+hung._connected=true;
+hung._hass={states:{},callWS:()=>new Promise(()=>{})};
+const hungRequest=hung._fetch();
+await Promise.resolve();
+const deadline=[...timeouts.values()].find(timer=>timer.delay===20000);
+assert(deadline);
+deadline.callback();
+await hungRequest;
+assert.equal(hung._pending,false);
+assert(hung._info.textContent.includes('Retrying'));
+hung.disconnectedCallback();
+assert.equal(timeouts.size,0);
+console.log('History recovery: draw errors, scheduled retry, backoff, reconnect, request timeout and timer cleanup passed');

@@ -482,6 +482,8 @@ class SamsungEHSHistoryBarCard extends HTMLElement {
     this.config = config;
     this._hours = hours;
     this._today = config.period === 'day' || (config.period === undefined && config.hours_to_show === undefined);
+    clearTimeout(this._retryTimer); this._retryTimer = null;
+    this._retryDelay = 5000;
     this._generation = (this._generation || 0)+1;
     this._pending = false;
     this._history = null;
@@ -518,46 +520,66 @@ class SamsungEHSHistoryBarCard extends HTMLElement {
   disconnectedCallback() {
     this._connected = false;
     clearInterval(this._timer); this._timer = null;
+    clearTimeout(this._retryTimer); this._retryTimer = null;
     this._generation = (this._generation || 0)+1;
     this._pending = false;
   }
   set hass(hass) {
+    const reconnected = this._hass?.connected === false && hass.connected !== false;
     this._hass = hass;
     if (this._chart) this._chart.hass = hass;
-    if (!this._history && !this._pending && !this._lastAttempt) this._fetch();
+    if (reconnected || (!this._history && !this._pending && !this._lastAttempt)) this._fetch();
   }
   async _fetch() {
     if (!this._connected || !this.config || !this._hass || this._pending) return;
+    if (this._hass.connected === false) {
+      this._info.textContent = 'Waiting for Home Assistant to reconnect…';
+      return;
+    }
+    clearTimeout(this._retryTimer); this._retryTimer = null;
     this._pending = true;
     const generation = this._generation;
-    const end = Date.now();
-    const start = this._today ? samsungEHSDayStart(end,this._hass.config?.time_zone) : end-this._hours*3600000;
-    this._lastAttempt = end;
-    let loaded = false;
+    let requestTimer;
     try {
+      const end = Date.now();
+      const start = this._today ? samsungEHSDayStart(end,this._hass.config?.time_zone) : end-this._hours*3600000;
+      this._lastAttempt = end;
       await samsungEHSEnsureNativeChart();
       if (generation !== this._generation || !this._connected) return;
-      const history = await this._hass.callWS({type:'history/history_during_period',
-        start_time:new Date(start).toISOString(), end_time:new Date(end).toISOString(),
-        entity_ids:this.config.entities.map(row => row.entity),
-        minimal_response:true, no_attributes:true, significant_changes_only:true, include_start_time_state:true});
+      const history = await Promise.race([
+        this._hass.callWS({type:'history/history_during_period',
+          start_time:new Date(start).toISOString(), end_time:new Date(end).toISOString(),
+          entity_ids:this.config.entities.map(row => row.entity),
+          minimal_response:true, no_attributes:true, significant_changes_only:true, include_start_time_state:true}),
+        new Promise((resolve,reject) => { requestTimer=setTimeout(() => reject(new Error('History request timed out')),20000); }),
+      ]);
+      clearTimeout(requestTimer);
       if (generation !== this._generation || !this._connected) return;
       if (!history || Array.isArray(history) || typeof history !== 'object') throw new Error('Invalid history response');
       this._start = start; this._end = end;
       this._history = this.config.entities.map(row => ({...row,
         unit:this._hass.states[row.entity]?.attributes?.unit_of_measurement || '',
         samples:samsungEHSHourlySamples(samsungEHSRawSamples(history[row.entity], start, end), start, end, this._today ? start : undefined)}));
+      // Rendering can also fail while HA's chart module is being initialized.
+      // Keep it inside the retry boundary, rather than reject an unobserved promise.
+      this._draw();
+      this._retryDelay = 5000;
       const count = this._history.reduce((sum, series) => sum+series.samples.filter(point => point.value !== null).length, 0);
       this._info.textContent = count ? 'Hourly averages · partial hours use available data' : 'No numeric history available. Check Recorder for these entities.';
-      loaded = true;
     } catch (error) {
       if (generation === this._generation && this._connected) {
-        this._info.textContent = 'Chart or history could not be loaded. Retrying in one minute.';
+        const delay = this._retryDelay || 5000;
+        this._info.textContent = `Chart or history could not be loaded. Retrying in ${delay/1000} seconds.`;
+        console.warn('Samsung EHS history card failed to load or render',error);
+        // Discard only a chart that failed before attachment; retain displayed data.
+        if (this._chart && !this._chart.parentNode) this._chart = null;
+        this._retryTimer = setTimeout(() => { this._retryTimer=null; this._fetch(); },delay);
+        this._retryDelay = Math.min(delay*2,60000);
       }
     } finally {
+      clearTimeout(requestTimer);
       if (generation === this._generation) this._pending = false;
     }
-    if (loaded) this._draw();
   }
   _draw() {
     if (!this._history) return;
