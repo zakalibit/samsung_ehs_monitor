@@ -114,7 +114,7 @@ assert.equal(unselectedNodes.filter(node=>node.attributes['data-curve']).length,
 assert(unselectedNodes.filter(node=>node.attributes['data-curve']).every(node=>node.attributes['stroke-dasharray']==='none'));
 const candidates=unselectedNodes.filter(node=>node.attributes['data-marker']==='curve-target');
 assert.deepEqual(candidates.map(node=>[node.attributes['data-wl'],node.attributes['data-value']]),[['1','31'],['2','36']]);
-assert(unselectedNodes.some(node=>node.textContent?.includes('active curve not reported')));
+assert(!unselectedNodes.some(node=>/active curve.*(unavailable|not reported)/i.test(node.textContent || '')));
 assert(unselectedNodes.some(node=>node.textContent?.includes('WL1: 31°C / WL2: 36°C base targets')));
 assert(!unselectedNodes.some(node=>node.attributes['data-marker']==='target'));
 unselected.hass=weatherState({wl2_cold:45,wl2_warm:30,outdoor:'unknown'});

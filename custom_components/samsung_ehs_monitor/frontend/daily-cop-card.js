@@ -275,7 +275,7 @@ class SamsungEHSWeatherCurveCard extends HTMLElement {
     const hasOutdoor = Number.isFinite(outdoor), hasActual = Number.isFinite(actual);
     const format = value => Number(value.toFixed(1));
     const target = active && hasOutdoor ? active.at(outdoor) : null;
-    let summary = selected ? `WL${selected}` : `${curves.map(curve => 'WL'+curve.id).join(' / ')} · active curve not reported`;
+    let summary = selected ? `WL${selected}` : curves.map(curve => 'WL'+curve.id).join(' / ');
     if (selected && !active) summary += ' endpoints unavailable';
     if (hasOutdoor) summary += ` · ${format(outdoor)}°C outdoors`;
     else summary += ' · Outdoor temperature unavailable';
