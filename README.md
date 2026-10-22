@@ -30,6 +30,10 @@ Select a power sensor in **W** or **kW**, not a Wh/kWh energy sensor. The select
 
 You can change the selected source later, or clear the field and save to return to Samsung API power. The selected entity must already exist and declare W/kW units; unavailable numeric states are allowed after selection. Sensors from Samsung EHS Monitor itself are rejected to prevent direct feedback loops.
 
+## Download an API response
+
+Open **Settings → Devices & services → Samsung EHS Monitor**, open the heat pump entry’s **⋮** menu and select **Download diagnostics**. Each download makes a new read-only SmartThings status request and saves the JSON response using Home Assistant’s native download action. It uses your configured authentication, including shared token refresh. The status data is exported before sensor decoding/validation so unsupported fields can be inspected later; credentials and known identifying fields are excluded or redacted. Home Assistant wraps the response in its diagnostics JSON (`data`). Request failures fail the download instead of returning cached readings. Restart Home Assistant after installing this update to enable the action.
+
 ## Authentication
 
 Choose one of two authentication methods:

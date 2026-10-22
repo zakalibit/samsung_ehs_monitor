@@ -83,9 +83,13 @@ class SmartThingsClient:
         return data
 
     async def status(self, device_id: str) -> dict:
-        data = await self._get(f"/devices/{device_id}/status")
+        data = await self.raw_status(device_id)
         validate_status(data)
         return data
+
+    async def raw_status(self, device_id: str) -> dict:
+        """Fetch status without sensor validation, for downloadable inspection."""
+        return await self._get(f"/devices/{device_id}/status")
 
 
 def validate_status(data):
