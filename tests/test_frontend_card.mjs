@@ -63,6 +63,24 @@ card.hass = {states:{'sensor.daily':{attributes:{power_source:'sensor.meter', da
 assert(flatten(card.shadowRoot).some(node => node.textContent === '4.00'));
 console.log(`Frontend card checks passed (${cases} history cases, missing entity and reconfiguration)`);
 
+// Color thresholds must be stable at every half-COP boundary, including partial days.
+const colorCard = new Card();
+colorCard.setConfig({entity:'sensor.daily'});
+const colorValues = [0, 2.999, 3, 3.499, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 20];
+colorCard.hass = {states:{'sensor.daily':{attributes:{power_source:'sensor.meter',
+  daily_history:colorValues.map((cop, i) => ({...valid, date:`2026-10-${String(i + 1).padStart(2, '0')}`,
+    cop, complete:i % 2 === 0}))}}}};
+const coloredBars = flatten(colorCard.shadowRoot).filter(node => node.tag === 'rect');
+assert.deepEqual(coloredBars.map(node => node.attributes.fill), [
+  '#fb8c00', '#fb8c00', '#c8e6c9', '#c8e6c9', '#a5d6a7', '#81c784',
+  '#66bb6a', '#4caf50', '#43a047', '#2e9d46', '#168c39', '#168c39']);
+for (const [i, bar] of coloredBars.entries()) {
+  assert.equal(Number(bar.attributes.width), 15);
+  if (i) assert.equal(Number(bar.attributes.x) - Number(coloredBars[i-1].attributes.x)
+    - Number(coloredBars[i-1].attributes.width), 20);
+}
+console.log('Daily COP bars: solid colors, half-COP thresholds, wider bars and 20-pixel gaps passed');
+
 const waterLaw = context.samsungEHSWaterLaw;
 const settings = {outdoor_cold:-10, outdoor_warm:15, wl1_cold:40, wl1_warm:25,
   wl2_cold:50, wl2_warm:35, selected:1};

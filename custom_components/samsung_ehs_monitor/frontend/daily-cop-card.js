@@ -60,7 +60,7 @@ function samsungEHSRegisterRowsAndDailyCard() {
       if (!rows.length || !rows.some(r => Number.isFinite(r.cop))) {
         el('p', 'Collecting paired heat and electricity readings. Bars appear after valid energy has accumulated.', card);
       }
-      el('p', 'Each bar = heat kWh ÷ electrical kWh for that date. Striped bars are incomplete or still in progress; gaps are not counted as zero.', card);
+      el('p', 'Each bar = heat kWh ÷ electrical kWh for that date. Orange = COP below 3; greens deepen every 0.5 COP from 3. Coverage below shows incomplete days; gaps are not counted as zero.', card);
       const plot = el('div', undefined, card); plot.className = 'plot';
       const ns = 'http://www.w3.org/2000/svg';
       const svgEl = (tag, attrs, parent, text) => {
@@ -70,14 +70,14 @@ function samsungEHSRegisterRowsAndDailyCard() {
         if (parent) parent.append(node);
         return node;
       };
-      const step = 31;
-      const barWidth = 11;
+      const barWidth = 15;
+      const step = barWidth + 20;
+      const greens = ['#c8e6c9', '#a5d6a7', '#81c784', '#66bb6a',
+        '#4caf50', '#43a047', '#2e9d46', '#168c39'];
+      const copColor = cop => cop < 3 ? '#fb8c00'
+        : greens[Math.min(greens.length - 1, Math.floor((cop - 3) / 0.5))];
       const width = Math.max(360, rows.length * step + 45);
       const svg = svgEl('svg', {viewBox:`0 0 ${width} 245`, width, role:'img', 'aria-label':'Daily estimated COP bar chart'}, plot);
-      const defs = svgEl('defs', {}, svg);
-      const pattern = svgEl('pattern', {id:'partial', width:6, height:6, patternUnits:'userSpaceOnUse', patternTransform:'rotate(45)'}, defs);
-      svgEl('rect', {width:6,height:6,fill:'var(--primary-color)',opacity:0.22}, pattern);
-      svgEl('line', {x1:0,y1:0,x2:0,y2:6,stroke:'var(--primary-color)','stroke-width':3}, pattern);
       const maximum = Math.max(1, Math.ceil(Math.max(0, ...rows.map(r => Number.isFinite(r.cop) ? r.cop : 0))));
       for (const value of [0, maximum/2, maximum]) {
         const y = 190 - value / maximum * 150;
@@ -90,7 +90,7 @@ function samsungEHSRegisterRowsAndDailyCard() {
         if (valid) {
           const height = r.cop / maximum * 150;
           const bar = svgEl('rect',{x:x-barWidth/2,y:190-height,width:barWidth,height,rx:3,
-            fill:r.complete ? 'var(--primary-color)' : 'url(#partial)'},svg);
+            fill:copColor(r.cop)},svg);
           svgEl('title',{},bar,`${r.date}: COP ${r.cop.toFixed(2)}; heat ${r.heat_kwh} kWh; electricity ${r.electricity_kwh} kWh; coverage ${r.coverage}%${r.today ? ' of elapsed day' : ''}`);
           svgEl('text',{x,y:183-height,'text-anchor':'middle',class:'value'},svg,r.cop.toFixed(2));
         } else {
