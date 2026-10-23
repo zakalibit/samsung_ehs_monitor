@@ -1,7 +1,7 @@
 {
   "domain": "samsung_ehs_monitor",
   "name": "Samsung EHS Monitor",
-  "version": "0.12.10",
+  "version": "0.12.11",
   "config_flow": true,
   "documentation": "https://github.com/zakalibit/samsung_ehs_monitor",
   "integration_type": "device",
