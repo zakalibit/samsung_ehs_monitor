@@ -83,12 +83,13 @@ function samsungEHSRegisterRowsAndDailyCard() {
         svgEl('text',{x:27,y:y+4,'text-anchor':'end'},svg,Number(value.toFixed(1)));
       }
       const step = (width - 45) / Math.max(1, rows.length);
+      const barWidth = Math.max(12, step - 12) / 3;
       rows.forEach((r, i) => {
         const x = 40 + i * step;
         const valid = Number.isFinite(r.cop);
         if (valid) {
           const height = r.cop / maximum * 150;
-          const bar = svgEl('rect',{x,y:190-height,width:Math.max(12,step-12),height,rx:3,
+          const bar = svgEl('rect',{x:x+(step-12-barWidth)/2,y:190-height,width:barWidth,height,rx:3,
             fill:r.complete ? 'var(--primary-color)' : 'url(#partial)'},svg);
           svgEl('title',{},bar,`${r.date}: COP ${r.cop.toFixed(2)}; heat ${r.heat_kwh} kWh; electricity ${r.electricity_kwh} kWh; coverage ${r.coverage}%${r.today ? ' of elapsed day' : ''}`);
           svgEl('text',{x:x+(step-12)/2,y:183-height,'text-anchor':'middle',class:'value'},svg,r.cop.toFixed(2));
