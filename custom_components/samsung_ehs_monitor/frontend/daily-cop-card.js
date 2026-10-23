@@ -70,7 +70,9 @@ function samsungEHSRegisterRowsAndDailyCard() {
         if (parent) parent.append(node);
         return node;
       };
-      const width = Math.max(360, rows.length * 45 + 45);
+      const step = 36;
+      const barWidth = 11;
+      const width = Math.max(360, rows.length * step + 45);
       const svg = svgEl('svg', {viewBox:`0 0 ${width} 245`, width, role:'img', 'aria-label':'Daily estimated COP bar chart'}, plot);
       const defs = svgEl('defs', {}, svg);
       const pattern = svgEl('pattern', {id:'partial', width:6, height:6, patternUnits:'userSpaceOnUse', patternTransform:'rotate(45)'}, defs);
@@ -82,22 +84,20 @@ function samsungEHSRegisterRowsAndDailyCard() {
         svgEl('line',{x1:35,y1:y,x2:width-8,y2:y,stroke:'var(--divider-color)'},svg);
         svgEl('text',{x:27,y:y+4,'text-anchor':'end'},svg,Number(value.toFixed(1)));
       }
-      const step = (width - 45) / Math.max(1, rows.length);
-      const barWidth = Math.max(12, step - 12) / 3;
       rows.forEach((r, i) => {
-        const x = 40 + i * step;
+        const x = 35 + (i + 0.5) * step;
         const valid = Number.isFinite(r.cop);
         if (valid) {
           const height = r.cop / maximum * 150;
-          const bar = svgEl('rect',{x:x+(step-12-barWidth)/2,y:190-height,width:barWidth,height,rx:3,
+          const bar = svgEl('rect',{x:x-barWidth/2,y:190-height,width:barWidth,height,rx:3,
             fill:r.complete ? 'var(--primary-color)' : 'url(#partial)'},svg);
           svgEl('title',{},bar,`${r.date}: COP ${r.cop.toFixed(2)}; heat ${r.heat_kwh} kWh; electricity ${r.electricity_kwh} kWh; coverage ${r.coverage}%${r.today ? ' of elapsed day' : ''}`);
-          svgEl('text',{x:x+(step-12)/2,y:183-height,'text-anchor':'middle',class:'value'},svg,r.cop.toFixed(2));
+          svgEl('text',{x,y:183-height,'text-anchor':'middle',class:'value'},svg,r.cop.toFixed(2));
         } else {
-          svgEl('text',{x:x+(step-12)/2,y:181,'text-anchor':'middle'},svg,'—');
+          svgEl('text',{x,y:181,'text-anchor':'middle'},svg,'—');
         }
-        svgEl('text',{x:x+(step-12)/2,y:208,'text-anchor':'middle'},svg,r.date.slice(5));
-        svgEl('text',{x:x+(step-12)/2,y:225,'text-anchor':'middle'},svg,r.today ? 'today' : `${fixed(r.coverage, 0)}%`);
+        svgEl('text',{x,y:208,'text-anchor':'middle'},svg,r.date.slice(5));
+        svgEl('text',{x,y:225,'text-anchor':'middle'},svg,r.today ? 'today' : `${fixed(r.coverage, 0)}%`);
       });
       const details = el('details',undefined,card);
       el('summary','Daily energy and coverage',details);
