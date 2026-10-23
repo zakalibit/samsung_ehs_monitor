@@ -70,7 +70,7 @@ function samsungEHSRegisterRowsAndDailyCard() {
         if (parent) parent.append(node);
         return node;
       };
-      const step = 16;
+      const step = 25;
       const barWidth = 11;
       const width = Math.max(360, rows.length * step + 45);
       const svg = svgEl('svg', {viewBox:`0 0 ${width} 245`, width, role:'img', 'aria-label':'Daily estimated COP bar chart'}, plot);
