@@ -710,7 +710,7 @@ function samsungEHSRegisterAIExportCard() {
       for (const days of [1, 7, 14, 30, 35]) {
         const option = document.createElement('option');
         option.value = String(days);
-        option.textContent = days === 1 ? 'Today' : `Last ${days} calendar days`;
+        option.textContent = days === 1 ? 'Today' : `Last ${days} days`;
         option.selected = days === 7;
         select.append(option);
       }
