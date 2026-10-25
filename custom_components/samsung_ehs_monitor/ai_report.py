@@ -146,6 +146,7 @@ def build_report(saved, current, histories, zone, days, now, warnings=()):
             'Heat output is estimated, not a calibrated heat-meter measurement.',
             'COP is paired heat energy divided by paired electrical energy; never average instantaneous COP.',
             'Missing data is unknown, not zero; check coverage before comparing periods.',
+            'From integration version 0.12.23, positive heat paired with power at or below 10 W is excluded; older finalized data may retain shutdown mismatch artifacts.',
             'Current settings are a snapshot at export time, not historical settings.',
             'Recorder retention and exclusions limit hourly metrics; recorded holds do not establish source freshness.',
             'Daily totals may include older baseline data without hourly ledger detail.',

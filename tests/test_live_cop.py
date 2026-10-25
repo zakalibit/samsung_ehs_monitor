@@ -62,10 +62,11 @@ class LiveCOPTests(unittest.TestCase):
         self.assertEqual(self.coordinator.snapshots.power[self.when], 100)
         self.assertEqual(match['thermal_timestamp'], match['power_timestamp'])
 
-    def test_no_close_match_uses_latest_power_after_restart(self):
+    def test_no_close_match_keeps_cop_unknown_after_restart(self):
         self.coordinator.live_power = external.p.PowerHistory()
         self.refresh()
-        self.assertEqual(self.data['_performance']['estimated_cop'], 27.92)
+        self.assertIsNone(self.data['_performance']['estimated_cop'])
+        self.assertEqual(self.data['_cop_match']['cop_status'], 'power_time_mismatch')
         self.assertEqual(self.data['_cop_match']['power_matching_method'], 'latest_fallback')
         self.assertEqual(self.data['_cop_match']['power_watts'], 100)
         self.assertEqual(self.data['_cop_match']['time_difference_seconds'], 120)
@@ -77,6 +78,21 @@ class LiveCOPTests(unittest.TestCase):
         self.assertIsNone(self.data['_performance']['estimated_cop'])
         self.assertEqual(self.data['_cop_match']['power_matching_method'], 'latest_fallback')
         self.assertEqual(self.data['_cop_match']['power_watts'], 0)
+
+
+    def test_current_standby_suppresses_old_active_heat_and_power_pair(self):
+        for watts in ('0', '5', '10', '0.005'):
+            self.states['sensor.shelly_power'].state = watts
+            self.refresh()
+            self.assertIsNone(self.data['_performance']['estimated_cop'])
+            self.assertEqual(self.data['_cop_match']['cop_status'], 'standby_power')
+            self.assertEqual(self.data['_performance']['electrical_input_power'], float(watts))
+
+    def test_matched_standby_denominator_is_rejected_even_if_current_power_is_active(self):
+        for watts in (0, 5, 10):
+            self.coordinator.live_power.record(self.when-120, watts, self.when)
+            self.refresh()
+            self.assertIsNone(self.data['_performance']['estimated_cop'])
 
     def test_newer_malformed_binary_uses_timestamp_of_valid_packet(self):
         cycles = self.data['components']['main']['samsungce.ehsCycleData']

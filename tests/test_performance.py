@@ -133,6 +133,15 @@ class PerformanceTests(unittest.TestCase):
 
 
 class PendingCounterTests(unittest.TestCase):
+    def test_standby_counter_interval_cannot_add_positive_heat(self):
+        for watts in (0, 5, 10):
+            r = p.RollingPerformance()
+            r.observe_counter(0, 0, 0)
+            r.observe_counter(300, watts*300/3600000, 300)
+            r.reconcile(lambda a, b: [(a, b, 4)], 300)
+            self.assertEqual(r.rows, [])
+            self.assertIsNone(r.values(300)['estimated_cop_7d'])
+
     def pending(self):
         r = p.RollingPerformance()
         r.observe_counter(0, 10, 0)

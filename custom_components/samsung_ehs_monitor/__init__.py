@@ -23,7 +23,7 @@ from .snapshots import SnapshotHistory
 from .frontend import RESOURCE_PATH, async_register_resources
 from .dashboard import async_setup_dashboard
 from .decoder import field
-from .performance import PowerHistory, LIVE_COP_MAX_SKEW, RollingPerformance, electrical_watts, net_heat_kw, instantaneous_cop, number, external_watts
+from .performance import PowerHistory, LIVE_COP_MAX_SKEW, COP_MIN_POWER_W, RollingPerformance, electrical_watts, net_heat_kw, instantaneous_cop, number, external_watts
 from .api import SmartThingsAuthError, SmartThingsClient, SmartThingsError
 from .const import DOMAIN, CONF_TOKEN, CONF_DEVICE_ID, CONF_POWER_SENSOR, DEFAULT_SCAN_INTERVAL
 
@@ -116,9 +116,14 @@ class SamsungEHSCoordinator(DataUpdateCoordinator[dict]):
             matching_method = "latest_fallback" if paired else "unavailable"
         aligned = (heat_time is not None and outdoor_time is not None
                    and abs(heat_time-outdoor_time) <= LIVE_COP_MAX_SKEW)
-        cop = instantaneous_cop(metrics.get("thermal_power"), paired[1]) if fresh and aligned and paired else None
+        matched_in_time = paired is not None and heat_time is not None and abs(paired[0]-heat_time) <= LIVE_COP_MAX_SKEW
+        standby = ((number(watts) and watts <= COP_MIN_POWER_W)
+                   or (paired is not None and number(paired[1]) and paired[1] <= COP_MIN_POWER_W))
+        cop = instantaneous_cop(metrics.get("thermal_power"), paired[1]) if fresh and aligned and matched_in_time and not standby else None
         data["_cop_match"] = {
             "power_matching_method": matching_method,
+            "cop_status": "standby_power" if standby else "power_time_mismatch" if paired and not matched_in_time else "valid" if cop is not None else "unavailable",
+            "minimum_cop_power_watts": COP_MIN_POWER_W,
             "thermal_timestamp": datetime.fromtimestamp(heat_time, timezone.utc).isoformat() if heat_time is not None else None,
             "outdoor_timestamp": datetime.fromtimestamp(outdoor_time, timezone.utc).isoformat() if outdoor_time is not None else None,
             "power_timestamp": datetime.fromtimestamp(paired[0], timezone.utc).isoformat() if paired else None,
@@ -138,7 +143,8 @@ class SamsungEHSCoordinator(DataUpdateCoordinator[dict]):
 
     def update_daily(self, data, now):
         """Reconcile on the heartbeat/API batch, never on every power event."""
-        self.daily.replay(now.timestamp(), self.snapshots.intervals(now.timestamp()))
+        self.daily.replay(now.timestamp(), self.snapshots.intervals(now.timestamp()),
+                          minimum_cop_power_watts=COP_MIN_POWER_W)
         history, values = self.daily.summary(now.timestamp())
         data["_daily_history"] = history
         data.setdefault("_performance", {}).update(values)

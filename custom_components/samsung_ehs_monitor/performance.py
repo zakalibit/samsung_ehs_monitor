@@ -43,6 +43,7 @@ def external_watts(state, unit, *, clamp_negative=False):
 
 
 LIVE_COP_MAX_SKEW = 90
+COP_MIN_POWER_W = 10  # Standby readings cannot support a meaningful heat-pump COP.
 
 
 class PowerHistory:
@@ -94,7 +95,7 @@ def net_heat_kw(metrics):
 
 
 def instantaneous_cop(heat, watts):
-    if not number(heat) or heat <= 0 or not number(watts) or watts <= 0:
+    if not number(heat) or heat <= 0 or not number(watts) or watts <= COP_MIN_POWER_W:
         return None
     return round(heat * 1000 / watts, 2)
 
@@ -160,6 +161,9 @@ class RollingPerformance:
                 heat += q * (b-a) / 3600
                 cursor = b
             if complete and abs(cursor-end) <= 0.001:
+                if heat > 0 and electricity * 3600000 / (end-start) <= COP_MIN_POWER_W:
+                    rows.pop((start, end), None)
+                    continue  # Counter interval contradicts positive cloud heat.
                 rows[(start, end)] = [start, end, heat, electricity]
             # Incomplete retries never remove an already accepted interval.
         self.rows = [rows[key] for key in sorted(rows)]

@@ -59,7 +59,7 @@ class DailyPerformance:
         end = datetime.combine(day + timedelta(days=1), time.min, self.zone)
         return start.timestamp(), end.timestamp()
 
-    def replay(self, now, intervals):
+    def replay(self, now, intervals, minimum_cop_power_watts=10):
         """Replace covered periods only; missing data never removes accepted energy."""
         intervals = intervals if self.source else []
         cutoff = now - 1800
@@ -83,6 +83,10 @@ class DailyPerformance:
             if row is None or row[0] > a or row[1] < b:
                 continue
             heat, watts = row[2:]
+            # Explicitly conflicting power can retract an earlier accepted hold.
+            # Missing telemetry still preserves it; do not turn uncertainty into zero heat.
+            if heat > 0 and watts <= minimum_cop_power_watts:
+                continue
             if merged and merged[-1][1] == a and merged[-1][2:] == (heat, watts):
                 merged[-1] = (merged[-1][0], b, heat, watts)
             else:

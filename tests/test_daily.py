@@ -16,6 +16,30 @@ def stamp(text):
 
 
 class DailyTests(unittest.TestCase):
+    def test_standby_conflict_excluded_but_fresh_off_and_defrost_retained(self):
+        for watts in (0, 5, 10):
+            d = m.DailyPerformance('UTC', 'sensor.shelly')
+            t = stamp('2026-10-20T00:00:00+00:00')
+            d.replay(t+180, [(t, t+60, 4, watts), (t+60, t+120, 0, watts),
+                             (t+120, t+180, -2, 1000)])
+            row = d.history(t+180)[-1]
+            self.assertEqual(d.days['2026-10-20']['seconds'], 120)
+            self.assertLess(row['heat_kwh'], 0)
+            self.assertIsNone(row['cop'])
+
+    def test_standby_correction_retracts_old_heat_and_survives_reload(self):
+        d = m.DailyPerformance('UTC', 'sensor.shelly')
+        t = stamp('2026-10-20T00:00:00+00:00')
+        d.replay(t+60, [(t, t+60, 4, 1000)])
+        for _ in range(2):
+            d.replay(t+60, [(t, t+60, 4, 5)])
+            self.assertAlmostEqual(d.days['2026-10-20']['heat'], 0)
+            self.assertAlmostEqual(d.days['2026-10-20']['seconds'], 0)
+        restored = m.DailyPerformance('UTC', 'sensor.shelly', d.saved())
+        restored.replay(t+120, [(t+60, t+120, 4, 1000)])
+        self.assertAlmostEqual(restored.days['2026-10-20']['heat'], 4/60)
+        self.assertAlmostEqual(restored.days['2026-10-20']['seconds'], 60)
+
     def test_ratio_of_energy_not_average_of_ratios(self):
         d = m.DailyPerformance('UTC', 'sensor.shelly')
         t = stamp('2026-10-20T00:00:00+00:00')

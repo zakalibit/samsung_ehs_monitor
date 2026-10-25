@@ -64,7 +64,7 @@ scope = dict(DataUpdateCoordinator=CoordinatorStub, callback=lambda f: f,
              field=d.field,
              electrical_watts=p.electrical_watts, external_watts=p.external_watts,
              net_heat_kw=p.net_heat_kw, instantaneous_cop=p.instantaneous_cop, number=p.number,
-             PowerHistory=p.PowerHistory, LIVE_COP_MAX_SKEW=p.LIVE_COP_MAX_SKEW)
+             PowerHistory=p.PowerHistory, LIVE_COP_MAX_SKEW=p.LIVE_COP_MAX_SKEW, COP_MIN_POWER_W=p.COP_MIN_POWER_W)
 Coordinator = production_class("__init__.py", "SamsungEHSCoordinator", scope)
 
 

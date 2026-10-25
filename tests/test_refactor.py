@@ -54,7 +54,8 @@ class AccountingSchedulingTests(unittest.TestCase):
             coordinator.daily_tick(datetime.fromtimestamp(t+60, timezone.utc))
         row = coordinator.daily.history(t+60)[-1]
         self.assertAlmostEqual(row['electricity_kwh'], 70000/3600000, places=4)
-        self.assertAlmostEqual(row['heat_kwh'], 2.792/60, places=4)
+        self.assertAlmostEqual(row['heat_kwh'], 2.792*40/3600, places=4)
+        self.assertEqual(coordinator.daily.days['2026-10-20']['seconds'], 40)
 
 
 class SharedSampleTests(unittest.TestCase):
