@@ -501,3 +501,20 @@ await exportButton.handlers.click();
 assert(exportNodes.some(node => node.textContent === 'Export failed: Administrator required'));
 assert.equal(exportButton.disabled, false);
 console.log('AI report download: selected period, JSON blob, cleanup and failure recovery passed');
+
+// Temperature overlays share a baseline and must not contribute summed stacks.
+const temperatureBars = new (elements.get('samsung-ehs-history-bar-card'))();
+temperatureBars.setConfig({stacked:false, overlay:true, entities:[
+  {entity:'sensor.outdoor'}, {entity:'sensor.indoor'}]});
+temperatureBars._hass = bars._hass;
+temperatureBars._start = 0;
+temperatureBars._end = 3600000;
+temperatureBars._history = [
+  {entity:'sensor.outdoor', unit:'°C', samples:[{time:0,end:3600000,value:10}]},
+  {entity:'sensor.indoor', unit:'°C', samples:[{time:0,end:3600000,value:20}]}];
+temperatureBars._draw();
+assert(temperatureBars._chart.data.every(series => series.stack === undefined));
+assert(temperatureBars._chart.data.every(series => series.barGap === '-100%'));
+assert.deepEqual(Array.from(temperatureBars._chart.data, series => series.data[0].value[1]), [10,20]);
+assert.equal(temperatureBars._chart.options.yAxis.type, 'value');
+console.log('Temperature overlays: shared baseline, actual readings and unstacked automatic axis passed');

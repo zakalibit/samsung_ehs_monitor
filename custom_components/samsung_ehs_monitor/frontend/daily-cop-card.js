@@ -595,9 +595,12 @@ function samsungEHSRegisterHistoryCard() {
       const fallback = ['#0288d1','#f39c12','#8e44ad','#16a085'];
       this._series = this._history.map((series, index) => ({
         id:series.entity, name:series.name || series.entity, type:'bar',
-        stack:this.config.stacked === false ? undefined : 'readings',
+        stack:this.config.overlay || this.config.stacked === false ? undefined : 'readings',
+        barGap:this.config.overlay ? '-100%' : undefined,
+        z:this.config.overlay ? this._history.length-index : undefined,
         color:style.getPropertyValue(`--graph-color-${index+1}`).trim()
           || style.getPropertyValue(`--color-${index+1}`).trim() || fallback[index%fallback.length],
+        itemStyle:this.config.overlay ? {opacity:0.8} : undefined,
         barMaxWidth:50, cursor:'default',
         // One time-weighted mean per hour, aligned across all series.
         data:series.samples.map(point => [point.time,point.value]),
