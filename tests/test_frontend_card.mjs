@@ -455,7 +455,7 @@ readyElements.set('home-assistant',class extends AfterHA {});
 startupTimers.shift()();
 const expectedCards=['samsung-ehs-daily-cop-card','samsung-ehs-flow-return-row',
   'samsung-ehs-performance-row','samsung-ehs-power-row','samsung-ehs-compressor-row',
-  'samsung-ehs-weather-curve-card','samsung-ehs-history-bar-card'];
+  'samsung-ehs-weather-curve-card','samsung-ehs-history-bar-card','samsung-ehs-ai-export-card'];
 for (const name of expectedCards) {
   const ctor=readyElements.get(name);
   assert(ctor,`${name} is registered in HA's replacement registry`);
@@ -464,6 +464,40 @@ for (const name of expectedCards) {
 }
 assert.equal(earlyElements.size,0);
 assert.equal(startupTimers.length,0);
-assert.equal(startup.window.customCards.length,3);
+assert.equal(startup.window.customCards.length,4);
 assert.equal(timeouts.size,0); // A dashboard loaded after HA is ready needs no poll.
 console.log('Startup registry replacement: every card waits for HA and uses the new registry/HTMLElement');
+
+// Exercise the download path and server errors without a browser or network.
+const downloads = [];
+context.Blob = class { constructor(parts, options) { this.parts=parts; this.type=options.type; } };
+context.URL = {createObjectURL: blob => { downloads.push(blob); return 'blob:local-report'; },
+  revokeObjectURL: url => downloads.push(url)};
+Element.prototype.click = function() { this.clicked = true; };
+Element.prototype.remove = function() { this.parentNode.children = this.parentNode.children.filter(node => node !== this); };
+const ExportCard = elements.get('samsung-ehs-ai-export-card');
+const exportCard = new ExportCard();
+exportCard.setConfig({entity:'sensor.daily'});
+let exportRequest;
+exportCard.hass = {callWS: async message => {
+  exportRequest = message;
+  return {generated_at_utc:'2026-10-25T12:00:00+00:00', schema_version:1};
+}};
+const exportNodes = flatten(exportCard.shadowRoot);
+const period = exportNodes.find(node => node.tag === 'select');
+period.value = '14';
+const exportButton = exportNodes.find(node => node.tag === 'button');
+await exportButton.handlers.click();
+assert.equal(exportRequest.type, 'samsung_ehs_monitor/export_performance');
+assert.equal(exportRequest.entity_id, 'sensor.daily');
+assert.equal(exportRequest.days, 14);
+assert.equal(JSON.parse(downloads[0].parts[0]).schema_version, 1);
+assert.equal(exportButton.disabled, false);
+assert(exportNodes.some(node => node.textContent?.startsWith('Report downloaded.')));
+for (const [id, timer] of timeouts) { timer.callback(); timeouts.delete(id); }
+assert.equal(downloads[1], 'blob:local-report');
+exportCard.hass = {callWS: async () => { throw new Error('Administrator required'); }};
+await exportButton.handlers.click();
+assert(exportNodes.some(node => node.textContent === 'Export failed: Administrator required'));
+assert.equal(exportButton.disabled, false);
+console.log('AI report download: selected period, JSON blob, cleanup and failure recovery passed');

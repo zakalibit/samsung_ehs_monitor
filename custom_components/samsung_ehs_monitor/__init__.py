@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 import logging
 from pathlib import Path
 
+from homeassistant.components import websocket_api
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
@@ -15,6 +16,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
+from .ai_export import websocket_export_performance
 from .auth import async_create_client
 from .daily import DailyPerformance
 from .snapshots import SnapshotHistory
@@ -204,6 +206,7 @@ async def async_setup(hass: HomeAssistant, config) -> bool:
     """Serve the bundled daily-ratio card; no HACS/resource entry required."""
     await hass.http.async_register_static_paths([
         StaticPathConfig(RESOURCE_PATH, str(Path(__file__).parent / "frontend" / "daily-cop-card.js"), False)])
+    websocket_api.async_register_command(hass, websocket_export_performance)
     await async_register_resources(hass)
     return True
 

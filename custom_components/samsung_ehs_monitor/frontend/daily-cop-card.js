@@ -679,6 +679,78 @@ function samsungEHSRegisterHistoryCard() {
     description:'Hourly averaged measurements using Home Assistant’s native stacked bar chart and shared tooltip.'});
 }
 
+function samsungEHSRegisterAIExportCard() {
+  class SamsungEHSAIExportCard extends HTMLElement {
+    setConfig(config) {
+      if (!config.entity) throw new Error('Specify a Samsung EHS Monitor sensor');
+      this.config = config;
+      if (!this.shadowRoot) this.attachShadow({mode:'open'});
+      this._render();
+    }
+    set hass(hass) { this._hass = hass; }
+    getCardSize() { return 3; }
+    _render() {
+      const root = this.shadowRoot;
+      root.replaceChildren();
+      const style = document.createElement('style');
+      style.textContent = `ha-card{padding:20px;color:var(--primary-text-color)}h2{font-size:20px;font-weight:500;margin:0 0 10px}p{font-size:13px;line-height:1.5;color:var(--secondary-text-color)}select,button{font:inherit;padding:8px;border-radius:6px;margin:4px 8px 4px 0}button{cursor:pointer;background:var(--primary-color);color:var(--text-primary-color);border:0}label{font-size:14px}`;
+      root.append(style);
+      const card = document.createElement('ha-card');
+      const heading = document.createElement('h2');
+      heading.textContent = this.config.title || 'Export performance for AI';
+      const description = document.createElement('p');
+      description.textContent = 'Download current settings, daily energy and coverage, and hourly performance summaries as JSON. Includes today so far. Nothing is sent to an AI provider. Administrator access required.';
+      const label = document.createElement('label');
+      label.textContent = 'Period: ';
+      const select = document.createElement('select');
+      select.setAttribute('aria-label', 'Report period');
+      for (const days of [1, 7, 14, 30, 35]) {
+        const option = document.createElement('option');
+        option.value = String(days);
+        option.textContent = days === 1 ? 'Today' : `Last ${days} calendar days`;
+        option.selected = days === 7;
+        select.append(option);
+      }
+      label.append(select);
+      const button = document.createElement('button');
+      button.textContent = 'Export performance for AI';
+      const status = document.createElement('p');
+      status.setAttribute('role', 'status');
+      button.addEventListener('click', async () => {
+        if (!this._hass || button.disabled) return;
+        button.disabled = true;
+        status.textContent = 'Preparing report…';
+        try {
+          const report = await this._hass.callWS({type:'samsung_ehs_monitor/export_performance',
+            entity_id:this.config.entity, days:Number(select.value)});
+          const blob = new Blob([JSON.stringify(report, null, 2)], {type:'application/json'});
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = `samsung-ehs-performance-${report.generated_at_utc.slice(0,10)}-${select.value}d.json`;
+          root.append(link);
+          link.click();
+          link.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+          status.textContent = 'Report downloaded. Review it before sharing with your AI agent.';
+        } catch (error) {
+          status.textContent = `Export failed: ${error?.message || 'Check administrator access and integration availability.'}`;
+        } finally {
+          button.disabled = false;
+        }
+      });
+      for (const node of [heading, description, label, button, status]) card.append(node);
+      root.append(card);
+    }
+  }
+  if (!customElements.get('samsung-ehs-ai-export-card')) {
+    customElements.define('samsung-ehs-ai-export-card', SamsungEHSAIExportCard);
+  }
+  window.customCards = window.customCards || [];
+  window.customCards.push({type:'samsung-ehs-ai-export-card', name:'Samsung EHS AI Export',
+    description:'Download a local performance report for an AI adviser.'});
+}
+
 // Extra frontend modules can run before HA installs its scoped-registry
 // polyfill. That replaces both customElements and HTMLElement, losing early
 // registrations. Re-check the CURRENT registry until HA's own root is defined;
@@ -692,4 +764,5 @@ function samsungEHSRegisterHistoryCard() {
   samsungEHSRegisterRowsAndDailyCard();
   samsungEHSRegisterWeatherCard();
   samsungEHSRegisterHistoryCard();
+  samsungEHSRegisterAIExportCard();
 })();

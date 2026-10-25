@@ -84,6 +84,8 @@ views:
         title: Daily estimated COP
         entity: sensor.samsung_ehs_monitor_estimated_cop_today
         days_to_show: 14
+      - type: custom:samsung-ehs-ai-export-card
+        entity: sensor.samsung_ehs_monitor_estimated_cop_today
       - type: entities
         title: Last 7 days · available matched data
         show_header_toggle: false

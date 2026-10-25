@@ -140,3 +140,20 @@ The same store record also contains the recent 30-minute replay intervals and th
 Missing, malformed or unsupported API responses cannot delete accepted historical measurements or erase accepted daily energy. New invalid packets still prevent new unverified intervals from being added. A later valid measurement can legitimately revise the energy for a previously estimated interval. Existing totals-only stores are migrated as a preserved baseline, and new ledger entries are added separately. Changing the selected electrical source or timezone still starts a new daily series.
 
 This recovery uses the integration's own persisted measurements. Recorder history and dashboard charts are not required. Recorder backfilling is not implemented, and readings that were never observed or saved cannot be reconstructed by this update.
+
+### Export performance for AI
+
+The Overview tab includes **Export performance for AI**. Sign in as a Home Assistant administrator, choose today or the last 7, 14, 30 or 35 calendar days, and download the JSON report. The period includes today so far, using Home Assistant's timezone. Manual dashboards can add:
+
+```yaml
+type: custom:samsung-ehs-ai-export-card
+entity: sensor.samsung_ehs_monitor_estimated_cop_today
+```
+
+Use the actual entity ID from your installation. The export resolves that sensor to its integration instance, so multiple heat pumps produce separate reports.
+
+The report includes current operating and available numeric FSV settings, paired daily heat/electricity totals and coverage, period COP, and hourly paired energy/COP. With Recorder enabled, available temperatures, water flow, compressor frequency, pump speed and power are summarized into duration-weighted hourly means, minima, maxima and recorded coverage. Recorder retention and exclusions limit available history; the paired ledger retains up to 35 local days. Unknown values remain missing, and no-data days are not presented as zero consumption. Old baseline daily totals may lack hourly detail.
+
+Heat output is estimated. Recorded state holds do not prove telemetry freshness; heating, hot-water and defrost energy are not separated. Settings describe export time, not the entire requested period. The report includes these limitations and suggested analysis instructions. Review the report before sharing it with an AI agent; it contains household operating patterns. It excludes credentials, device/entity identifiers and raw SmartThings payloads. Nothing is uploaded automatically, no AI provider/key is needed, and no settings can be changed by the export.
+
+The administrator-only WebSocket command is `samsung_ehs_monitor/export_performance` with `entity_id` and integer `days` (1–35). Its response uses `schema_version: 1`; it is intended for manual downloads in this release, not an autonomous AI connection. Restart Home Assistant and reload the dashboard after updating.
