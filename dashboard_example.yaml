@@ -130,8 +130,8 @@ views:
           - entity: sensor.samsung_ehs_monitor_estimated_thermal_output
             name: Estimated heat output · kW
       - type: custom:samsung-ehs-history-bar-card
-        stacked: false
-        title: Outdoor, discharge gas and indoor temperatures · today, hourly averages
+        stacked: true
+        title: Outdoor, discharge gas, indoor and flow temperatures · today, hourly averages
         period: day
         entities:
           - entity: sensor.samsung_ehs_monitor_outdoor_temperature
@@ -140,6 +140,8 @@ views:
             name: Discharge gas
           - entity: sensor.samsung_ehs_monitor_room_temperature
             name: Indoors
+          - entity: sensor.samsung_ehs_monitor_water_flow_temperature
+            name: Flow
       - type: custom:samsung-ehs-history-bar-card
         stacked: true
         title: Water flow · today, hourly averages

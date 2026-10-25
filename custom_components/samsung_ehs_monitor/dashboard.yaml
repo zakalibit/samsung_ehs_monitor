@@ -126,8 +126,8 @@ views:
           - entity: thermal_power
             name: Estimated heat output · kW
       - type: custom:samsung-ehs-history-bar-card
-        stacked: false
-        title: Outdoor, discharge gas and indoor temperatures · today, hourly averages
+        stacked: true
+        title: Outdoor, discharge gas, indoor and flow temperatures · today, hourly averages
         period: day
         entities:
           - entity: outdoor_temperature
@@ -136,6 +136,8 @@ views:
             name: Discharge gas
           - entity: room_temperature
             name: Indoors
+          - entity: water_flow_temperature
+            name: Flow
       - type: custom:samsung-ehs-history-bar-card
         stacked: true
         title: Water flow · today, hourly averages
