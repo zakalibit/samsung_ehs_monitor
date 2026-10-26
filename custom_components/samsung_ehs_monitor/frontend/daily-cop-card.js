@@ -168,7 +168,7 @@ function samsungEHSRegisterRowsAndDailyCard() {
         heat:['Heat instant/day total', 'mdi:heat-wave'],
         cop:['COP instant/day', 'mdi:heat-pump'],
       };
-      super.setConfig({...config, metric, name:config.name || defaults[metric][0],
+      super.setConfig({...config, metric, name:config.name || (config.week_entity ? `${metric === 'cop' ? 'COP' : metric === 'heat' ? 'Heat' : 'Power'} instant/day/7 day` : defaults[metric][0]),
         icon:config.icon || defaults[metric][1]});
     }
 
@@ -176,8 +176,10 @@ function samsungEHSRegisterRowsAndDailyCard() {
       if (!this.config) return;
       const metric = this.config.metric;
       const unit = metric === 'power' ? 'W' : metric === 'heat' ? 'kW' : '';
-      this.renderValues(hass, [['entity', unit, metric === 'power' ? 1 : 2],
-        ['return_entity', metric === 'cop' ? '' : 'kWh', 2]]);
+      const fields = [['entity', unit, metric === 'power' ? 1 : 2],
+        ['return_entity', metric === 'cop' ? '' : 'kWh', 2]];
+      if (this.config.week_entity) fields.push(['week_entity', metric === 'cop' ? '' : 'kWh', 2]);
+      this.renderValues(hass, fields);
     }
   }
   if (!customElements.get('samsung-ehs-performance-row')) {

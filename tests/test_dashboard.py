@@ -52,6 +52,15 @@ class DashboardTests(unittest.IsolatedAsyncioTestCase):
                        async_add_executor_job=executor,
                        bus=NS(async_listen=Mock(return_value=self.unsubscribe)))
 
+    def test_week_entity_resolves_by_sensor_key(self):
+        template = {'views': [{'cards': [{'type': 'custom:samsung-ehs-performance-row',
+            'entity': 'estimated_cop', 'return_entity': 'estimated_cop_today',
+            'week_entity': 'estimated_cop_7d'}]}]}
+        result = self.scope['build_dashboard'](template, {
+            'estimated_cop': 'sensor.instant', 'estimated_cop_today': 'sensor.today',
+            'estimated_cop_7d': 'sensor.renamed_week'}, 'EHS')
+        self.assertEqual(result['views'][0]['cards'][0]['week_entity'], 'sensor.renamed_week')
+
     def entity(self, key, eid, disabled=None, device='pump1', platform='samsung_ehs_monitor'):
         return NS(unique_id=f'{device}_{key}', entity_id=eid, domain='sensor',
                   platform=platform, disabled_by=disabled)

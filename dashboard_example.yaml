@@ -48,17 +48,20 @@ views:
             metric: power
             entity: sensor.samsung_ehs_monitor_electrical_input_power
             return_entity: sensor.samsung_ehs_monitor_electrical_energy_today
-            name: Power instant/day total
+            week_entity: sensor.samsung_ehs_monitor_electrical_energy_7d
+            name: Power instant/day/7 day
           - type: custom:samsung-ehs-performance-row
             metric: heat
             entity: sensor.samsung_ehs_monitor_net_thermal_power
             return_entity: sensor.samsung_ehs_monitor_estimated_heat_energy_today
-            name: Heat instant/day total
+            week_entity: sensor.samsung_ehs_monitor_estimated_heat_energy_7d
+            name: Heat instant/day/7 day
           - type: custom:samsung-ehs-performance-row
             metric: cop
             entity: sensor.samsung_ehs_monitor_estimated_cop
             return_entity: sensor.samsung_ehs_monitor_estimated_cop_today
-            name: COP instant/day
+            week_entity: sensor.samsung_ehs_monitor_estimated_cop_7d
+            name: COP instant/day/7 day
       - type: custom:samsung-ehs-weather-curve-card
         title: Weather compensation · water law
         entities:
@@ -84,18 +87,6 @@ views:
         title: Daily estimated COP
         entity: sensor.samsung_ehs_monitor_estimated_cop_today
         days_to_show: 14
-      - type: custom:samsung-ehs-ai-export-card
-        entity: sensor.samsung_ehs_monitor_estimated_cop_today
-      - type: entities
-        title: Last 7 days · available matched data
-        show_header_toggle: false
-        entities:
-          - entity: sensor.samsung_ehs_monitor_estimated_heat_energy_7d
-            name: Estimated heat produced
-          - entity: sensor.samsung_ehs_monitor_electrical_energy_7d
-            name: Electricity consumed
-          - entity: sensor.samsung_ehs_monitor_estimated_cop_7d
-            name: Estimated 7-day COP
       - type: history-graph
         title: Temperatures 24 hours
         hours_to_show: 24
@@ -174,6 +165,12 @@ views:
         entities:
           - entity: sensor.samsung_ehs_monitor_circulation_pump_speed
             name: Pump speed
+  - title: AI
+    path: ai
+    icon: mdi:robot-outline
+    cards:
+      - type: custom:samsung-ehs-ai-export-card
+        entity: sensor.samsung_ehs_monitor_estimated_cop_today
   - title: Logs
     path: logs
     icon: mdi:alert-circle-outline

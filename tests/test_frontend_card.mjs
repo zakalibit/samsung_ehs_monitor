@@ -208,7 +208,22 @@ for (const [metric, instant, day, expected] of [
   row.hass = hass;
   assert(row.shadowRoot.querySelector('.values').textContent.endsWith(' / —'));
 }
-console.log('Paired instantaneous/daily power, signed heat and unitless COP checks passed');
+for (const [metric, week, expected] of [
+  ['power', '70.456', '1,200W / 12.35kWh / 70.46kWh'],
+  ['heat', '250.456', '1,200kW / 12.35kWh / 250.46kWh'],
+  ['cop', '3.789', '1,200 / 12.35 / 3.79'],
+]) {
+  const row = new PerformanceRow();
+  row.setConfig({metric,entity:'sensor.instant',return_entity:'sensor.today',week_entity:'sensor.week'});
+  const hass = {language:'en',states:{'sensor.instant':{state:'1200'},
+    'sensor.today':{state:'12.345'},'sensor.week':{state:week}}};
+  row.hass = hass;
+  assert.equal(row.shadowRoot.querySelector('.values').textContent, expected);
+  hass.states['sensor.week'].state = 'unavailable';
+  row.hass = hass;
+  assert(row.shadowRoot.querySelector('.values').textContent.endsWith(' / —'));
+}
+console.log('Instant/day/7-day performance rows, legacy pairs, signed heat and unitless COP checks passed');
 
 const rawSamples = context.samsungEHSRawSamples;
 const now = Date.now(), start = now-86400000;
