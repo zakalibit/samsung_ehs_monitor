@@ -36,7 +36,7 @@ def generate():
         slug = re.sub(r'[^a-z0-9]+', '_', names.get(key, key).lower()).strip('_')
         return f'{match[1]}sensor.samsung_ehs_monitor_{slug}'
 
-    rendered = re.sub(r'((?:\bentity|\breturn_entity|\bdischarge_entity|\bpump_entity|\bweek_entity): )([a-zA-Z0-9_]+)', entity, template)
+    rendered = re.sub(r'((?:\bentity|\breturn_entity|\bdischarge_entity|\bpump_entity|\bweek_entity|\boutdoor_entity): )([a-zA-Z0-9_]+)', entity, template)
     return HEADER + rendered.replace('__FAILURE_LOG_ENTITY__', 'sensor.samsung_ehs_monitor_failure_log')
 
 

@@ -135,7 +135,9 @@ function samsungEHSRegisterRowsAndDailyCard() {
     }
 
     set hass(hass) {
-      this.renderValues(hass, [['entity', '°C'], ['return_entity', '°C']]);
+      const fields = [['entity', '°C'], ['return_entity', '°C']];
+      if (this.config.outdoor_entity) fields.push(['outdoor_entity', '°C']);
+      this.renderValues(hass, fields);
     }
 
     renderValues(hass, fields) {

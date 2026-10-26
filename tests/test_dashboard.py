@@ -52,6 +52,15 @@ class DashboardTests(unittest.IsolatedAsyncioTestCase):
                        async_add_executor_job=executor,
                        bus=NS(async_listen=Mock(return_value=self.unsubscribe)))
 
+    def test_outdoor_entity_resolves_with_flow_and_return(self):
+        template = {'views': [{'cards': [{'type': 'custom:samsung-ehs-flow-return-row',
+            'entity': 'water_flow_temperature', 'return_entity': 'water_return_temperature',
+            'outdoor_entity': 'outdoor_temperature'}]}]}
+        result = self.scope['build_dashboard'](template, {
+            'water_flow_temperature': 'sensor.flow', 'water_return_temperature': 'sensor.return',
+            'outdoor_temperature': 'sensor.renamed_outdoors'}, 'EHS')
+        self.assertEqual(result['views'][0]['cards'][0]['outdoor_entity'], 'sensor.renamed_outdoors')
+
     def test_week_entity_resolves_by_sensor_key(self):
         template = {'views': [{'cards': [{'type': 'custom:samsung-ehs-performance-row',
             'entity': 'estimated_cop', 'return_entity': 'estimated_cop_today',

@@ -533,3 +533,14 @@ assert(temperatureBars._chart.data.every(series => series.barGap === '-100%'));
 assert.deepEqual(Array.from(temperatureBars._chart.data, series => series.data[0].value[1]), [10,20]);
 assert.equal(temperatureBars._chart.options.yAxis.type, 'value');
 console.log('Temperature overlays: shared baseline, actual readings and unstacked automatic axis passed');
+
+const combinedTemperatures = new (elements.get('samsung-ehs-flow-return-row'))();
+combinedTemperatures.setConfig({entity:'sensor.flow',return_entity:'sensor.return',outdoor_entity:'sensor.outdoor',name:'Flow/Return/Outdoors'});
+const combinedHass = {language:'en',states:{'sensor.flow':{state:'35'},
+  'sensor.return':{state:'30'},'sensor.outdoor':{state:'-2.5'}}};
+combinedTemperatures.hass = combinedHass;
+assert.equal(combinedTemperatures.shadowRoot.querySelector('.values').textContent, '35°C / 30°C / -2.5°C');
+combinedHass.states['sensor.outdoor'].state = 'unavailable';
+combinedTemperatures.hass = combinedHass;
+assert.equal(combinedTemperatures.shadowRoot.querySelector('.values').textContent, '35°C / 30°C / —');
+console.log('Flow/Return/Outdoors row: three temperatures and unavailable outdoor reading passed');
