@@ -45,7 +45,7 @@ views:
             entity: electrical_input_power
             return_entity: electrical_energy_today
             week_entity: electrical_energy_7d
-            name: Power instant/day/7 day
+            name: Electricity instant/day/7 day
           - type: custom:samsung-ehs-performance-row
             metric: heat
             entity: net_thermal_power

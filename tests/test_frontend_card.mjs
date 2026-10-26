@@ -185,18 +185,18 @@ const powerHass = {language:'en',states:{'sensor.power':{state:'1200',attributes
   'sensor.day_energy':{state:'12.345',attributes:{unit_of_measurement:'kWh'}}}};
 powerRow.hass = powerHass;
 assert.equal(powerRow.shadowRoot.querySelector('.name').textContent, 'Power instant/day total');
-assert.equal(powerRow.shadowRoot.querySelector('.values').textContent, '1,200W / 12.35kWh');
+assert.equal(powerRow.shadowRoot.querySelector('.values').textContent, '1.2kW / 12.35 kWh');
 powerHass.states['sensor.power'].state = '0';
 powerHass.states['sensor.day_energy'].state = 'unavailable';
 powerRow.hass = powerHass;
-assert.equal(powerRow.shadowRoot.querySelector('.values').textContent, '0W / —');
+assert.equal(powerRow.shadowRoot.querySelector('.values').textContent, '0kW / — kWh');
 console.log('Power instant/day total formatting checks passed');
 
 const PerformanceRow = elements.get('samsung-ehs-performance-row');
 for (const [metric, instant, day, expected] of [
-  ['power','1200','12.345','1,200W / 12.35kWh'],
-  ['heat','4.875','38.567','4.88kW / 38.57kWh'],
-  ['heat','-2.75','30.25','-2.75kW / 30.25kWh'],
+  ['power','1200','12.345','1.2kW / 12.35 kWh'],
+  ['heat','4.875','38.567','4.88kW / 38.57 kWh'],
+  ['heat','-2.75','30.25','-2.75kW / 30.25 kWh'],
   ['cop','4.126','3.375','4.13 / 3.38'],
 ]) {
   const row = new PerformanceRow();
@@ -206,11 +206,11 @@ for (const [metric, instant, day, expected] of [
   assert.equal(row.shadowRoot.querySelector('.values').textContent, expected);
   hass.states['sensor.today'].state = 'unknown';
   row.hass = hass;
-  assert(row.shadowRoot.querySelector('.values').textContent.endsWith(' / —'));
+  assert(row.shadowRoot.querySelector('.values').textContent.endsWith(metric === 'cop' ? ' / —' : ' / — kWh'));
 }
 for (const [metric, week, expected] of [
-  ['power', '70.456', '1,200W / 12.35kWh / 70.46kWh'],
-  ['heat', '250.456', '1,200kW / 12.35kWh / 250.46kWh'],
+  ['power', '70.456', '1.2kW / 12.35 / 70.46 kWh'],
+  ['heat', '250.456', '1,200kW / 12.35 / 250.46 kWh'],
   ['cop', '3.789', '1,200 / 12.35 / 3.79'],
 ]) {
   const row = new PerformanceRow();
@@ -221,7 +221,7 @@ for (const [metric, week, expected] of [
   assert.equal(row.shadowRoot.querySelector('.values').textContent, expected);
   hass.states['sensor.week'].state = 'unavailable';
   row.hass = hass;
-  assert(row.shadowRoot.querySelector('.values').textContent.endsWith(' / —'));
+  assert(row.shadowRoot.querySelector('.values').textContent.endsWith(metric === 'cop' ? ' / —' : ' / — kWh'));
 }
 console.log('Instant/day/7-day performance rows, legacy pairs, signed heat and unitless COP checks passed');
 

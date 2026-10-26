@@ -49,7 +49,7 @@ views:
             entity: sensor.samsung_ehs_monitor_electrical_input_power
             return_entity: sensor.samsung_ehs_monitor_electrical_energy_today
             week_entity: sensor.samsung_ehs_monitor_electrical_energy_7d
-            name: Power instant/day/7 day
+            name: Electricity instant/day/7 day
           - type: custom:samsung-ehs-performance-row
             metric: heat
             entity: sensor.samsung_ehs_monitor_net_thermal_power

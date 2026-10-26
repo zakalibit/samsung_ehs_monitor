@@ -71,7 +71,7 @@ For an automatically installed dashboard, enable **Create Samsung EHS dashboard*
 
 The At a glance card includes one Compressor row showing actual frequency / discharge temperature / circulation pump speed (for example, `40Hz / 37°C / 65%`). The separate Compressor and circulation card is omitted; detailed compressor, pump and discharge history remains in Trends.
 
-Estimated performance combines instant/day/7-day values for Power, Heat and COP in one card. Power and heat use W/kW for instantaneous readings and kWh for daily and seven-day totals; COP is unitless. For example: `1,200W / 12.34kWh / 80.5kWh` and `4 / 3.12 / 3.45`. Daily electricity uses the configured external power sensor, while seven-day electricity uses Samsung's accumulated counter. Both periods cover available matched data; different measurement sources and coverage can affect comparisons. The separate seven-day card has been removed. Daily coverage remains available in the daily chart.
+Estimated performance combines instant/day/7-day values for Electricity, Heat and COP. Electricity and heat use kW for the instant reading, followed by day and seven-day energy totals sharing one kWh suffix: `1.2kW / 12.34 / 80.5 kWh`. COP is unitless, for example `4 / 3.12 / 3.45`. Daily electricity uses the configured external power sensor, while seven-day electricity uses Samsung's accumulated counter. Both periods cover available matched data; different measurement sources and coverage can affect comparisons. The separate seven-day card has been removed. Daily coverage remains available in the daily chart.
 
 ## Weather compensation and power trends
 

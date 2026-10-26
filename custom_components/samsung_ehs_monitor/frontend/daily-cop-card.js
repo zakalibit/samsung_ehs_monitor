@@ -175,11 +175,30 @@ function samsungEHSRegisterRowsAndDailyCard() {
     set hass(hass) {
       if (!this.config) return;
       const metric = this.config.metric;
-      const unit = metric === 'power' ? 'W' : metric === 'heat' ? 'kW' : '';
-      const fields = [['entity', unit, metric === 'power' ? 1 : 2],
-        ['return_entity', metric === 'cop' ? '' : 'kWh', 2]];
-      if (this.config.week_entity) fields.push(['week_entity', metric === 'cop' ? '' : 'kWh', 2]);
-      this.renderValues(hass, fields);
+      const unit = metric === 'cop' ? '' : 'kW';
+      const format = (entityId, targetUnit, precision) => {
+        const state = hass.states[entityId];
+        if (!state || typeof state.state !== 'string' || state.state.trim() === ''
+          || ['unknown', 'unavailable'].includes(state.state)) return '—';
+        let value = Number(state.state);
+        if (!Number.isFinite(value)) return '—';
+        const sourceUnit = state.attributes?.unit_of_measurement
+          || (metric === 'power' && entityId === this.config.entity ? 'W' : targetUnit);
+        if (sourceUnit !== targetUnit) {
+          if ((sourceUnit === 'W' && targetUnit === 'kW')
+            || (sourceUnit === 'Wh' && targetUnit === 'kWh')) value /= 1000;
+          else if (sourceUnit === 'kW' && targetUnit === 'W') value *= 1000;
+          else return '—';
+        }
+        return new Intl.NumberFormat(hass.locale?.language || hass.language,
+          {maximumFractionDigits:precision}).format(value);
+      };
+      const instant = format(this.config.entity, unit, 2);
+      const energyUnit = metric === 'cop' ? '' : 'kWh';
+      const totals = [format(this.config.return_entity, energyUnit, 2)];
+      if (this.config.week_entity) totals.push(format(this.config.week_entity, energyUnit, 2));
+      this.shadowRoot.querySelector('.values').textContent =
+        `${instant}${instant === '—' ? '' : unit} / ${totals.join(' / ')}${energyUnit ? ' '+energyUnit : ''}`;
     }
   }
   if (!customElements.get('samsung-ehs-performance-row')) {
