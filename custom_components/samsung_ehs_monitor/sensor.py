@@ -130,7 +130,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         ("cooling_setpoint", "Cooling setpoint", "INDOOR1", "thermostatCoolingSetpoint", "coolingSetpoint", "°C"),
         ("outing_mode", "Outing mode", "main", "custom.outingMode", "outingMode", None),
     ]
-    entities = [SamsungEHSLogSensor(
+    entities = [SamsungEHSSensor(
+        coordinator, 'emoncms_status', 'Emoncms publishing status',
+        lambda d: coordinator.publisher.status if coordinator.publisher else 'Disabled', diagnostic=True),
+        SamsungEHSLogSensor(
         coordinator, "failure_log", "Failure log", lambda d: None, diagnostic=True)]
     for key, name, component, capability, attr, unit in definitions:
         entities.append(SamsungEHSSensor(

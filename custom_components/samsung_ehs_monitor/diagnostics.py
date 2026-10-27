@@ -9,7 +9,7 @@ from .const import CONF_DEVICE_ID
 # Export only the status response, never entry data, headers or authentication.
 TO_REDACT = {
     "token", "access_token", "refresh_token", "authorization", "Authorization",
-    "password", "client_secret", "deviceId", "locationId", "ownerId",
+    "password", "client_secret", "apikey", "api_key", "emoncms_api_key", "deviceId", "locationId", "ownerId",
     "serialNumber", "serial_number", "latitude", "longitude",
 }
 

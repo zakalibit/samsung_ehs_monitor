@@ -7,9 +7,10 @@ from homeassistant import config_entries
 from homeassistant.helpers import selector, entity_registry as er
 from homeassistant.core import callback
 
+from .emoncms import valid_url
 from .api import SmartThingsAuthError, SmartThingsError, is_ehs_status
 from .auth import async_create_client
-from .const import CONF_DEVICE_ID, CONF_TOKEN, CONF_POWER_SENSOR, CONF_CREATE_DASHBOARD, CONF_SMARTTHINGS_ENTRY, DOMAIN
+from .const import CONF_DEVICE_ID, CONF_TOKEN, CONF_POWER_SENSOR, CONF_CREATE_DASHBOARD, CONF_SMARTTHINGS_ENTRY, DOMAIN, CONF_EMONCMS_ENABLED, CONF_EMONCMS_URL, CONF_EMONCMS_NODE, CONF_EMONCMS_KEY
 
 
 class SamsungEHSConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -143,11 +144,35 @@ class SamsungEHSOptionsFlow(config_entries.OptionsFlow):
                     errors[CONF_POWER_SENSOR] = "invalid_power_sensor"
                 elif state.attributes.get("unit_of_measurement") not in {"W", "kW"}:
                     errors[CONF_POWER_SENSOR] = "invalid_power_unit"
+            publishing = bool(user_input.get(CONF_EMONCMS_ENABLED, False))
+            url = user_input.get(CONF_EMONCMS_URL, 'https://emoncms.org').strip().rstrip('/')
+            node = user_input.get(CONF_EMONCMS_NODE, 28)
+            key = (user_input.get(CONF_EMONCMS_KEY) or self.config_entry.options.get(CONF_EMONCMS_KEY, '')).strip()
+            if publishing:
+                if not entity_id:
+                    errors[CONF_POWER_SENSOR] = 'emoncms_requires_power'
+                if not valid_url(url):
+                    errors[CONF_EMONCMS_URL] = 'invalid_emoncms_url'
+                if isinstance(node, bool) or not isinstance(node, int) or not 1 <= node <= 65535:
+                    errors[CONF_EMONCMS_NODE] = 'invalid_emoncms_node'
+                if len(key) != 32 or any(char not in '0123456789abcdefABCDEF' for char in key):
+                    errors[CONF_EMONCMS_KEY] = 'invalid_emoncms_key'
+                for entry in self.hass.config_entries.async_entries(DOMAIN):
+                    if entry.entry_id != self.config_entry.entry_id and entry.options.get(CONF_EMONCMS_ENABLED):
+                        if entry.options.get(CONF_EMONCMS_URL, '').rstrip('/') == url and entry.options.get(CONF_EMONCMS_NODE) == node:
+                            errors[CONF_EMONCMS_NODE] = 'emoncms_node_in_use'
             if not errors:
                 return self.async_create_entry(title="", data={
                     **self.config_entry.options, CONF_POWER_SENSOR: entity_id,
-                    CONF_CREATE_DASHBOARD: user_input.get(CONF_CREATE_DASHBOARD, False)})
+                    CONF_CREATE_DASHBOARD: user_input.get(CONF_CREATE_DASHBOARD, False),
+                    CONF_EMONCMS_ENABLED: publishing, CONF_EMONCMS_URL: url,
+                    CONF_EMONCMS_NODE: node, CONF_EMONCMS_KEY: key})
         schema = vol.Schema({
+            vol.Optional(CONF_EMONCMS_ENABLED, default=False): bool,
+            vol.Optional(CONF_EMONCMS_URL, default='https://emoncms.org'): str,
+            vol.Optional(CONF_EMONCMS_NODE, default=28): int,
+            vol.Optional(CONF_EMONCMS_KEY): selector.TextSelector(selector.TextSelectorConfig(
+                type=selector.TextSelectorType.PASSWORD)),
             vol.Optional(CONF_CREATE_DASHBOARD, default=False): bool,
             vol.Optional(CONF_POWER_SENSOR): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="power")),
@@ -155,6 +180,7 @@ class SamsungEHSOptionsFlow(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id="init",
             data_schema=self.add_suggested_values_to_schema(
-                schema, user_input if user_input is not None else self.config_entry.options),
+                schema, {key: value for key, value in (user_input if user_input is not None else self.config_entry.options).items()
+                         if key != CONF_EMONCMS_KEY}),
             errors=errors,
         )

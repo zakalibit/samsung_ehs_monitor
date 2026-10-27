@@ -4,7 +4,7 @@ from homeassistant.components.lovelace.const import LOVELACE_DATA
 from homeassistant.components.lovelace.resources import ResourceStorageCollection
 
 RESOURCE_PATH = "/samsung_ehs_monitor/daily-cop-card.js"
-RESOURCE_URL = f"{RESOURCE_PATH}?v=0.12.27"
+RESOURCE_URL = f"{RESOURCE_PATH}?v=0.12.28"
 
 
 async def async_register_resources(hass):

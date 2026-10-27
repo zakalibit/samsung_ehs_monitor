@@ -4,6 +4,7 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import importlib.util
 from pathlib import Path
+from urllib.parse import urlsplit
 from types import SimpleNamespace as NS
 from unittest.mock import Mock
 import unittest
@@ -161,9 +162,13 @@ class FlowStub:
 
 
 flow_scope = dict(config_entries=NS(OptionsFlow=FlowStub), CONF_POWER_SENSOR="power_sensor",
-                  DOMAIN="samsung_ehs_monitor", CONF_CREATE_DASHBOARD="create_dashboard", er=NS(async_get=lambda h: h.registry),
+                  DOMAIN="samsung_ehs_monitor", CONF_CREATE_DASHBOARD="create_dashboard",
+                  CONF_EMONCMS_ENABLED="emoncms_enabled", CONF_EMONCMS_URL="emoncms_url",
+                  CONF_EMONCMS_NODE="emoncms_node", CONF_EMONCMS_KEY="emoncms_api_key",
+                  valid_url=lambda url: url.startswith("https://"), er=NS(async_get=lambda h: h.registry),
                   vol=NS(Schema=lambda v: v, Optional=lambda v, **kw: v),
-                  selector=NS(EntitySelector=lambda v: v, EntitySelectorConfig=lambda **kw: kw))
+                  selector=NS(TextSelector=lambda v:v, TextSelectorConfig=lambda **kw:kw,
+                              TextSelectorType=NS(PASSWORD="password"), EntitySelector=lambda v: v, EntitySelectorConfig=lambda **kw: kw))
 Options = production_class("config_flow.py", "SamsungEHSOptionsFlow", flow_scope)
 
 

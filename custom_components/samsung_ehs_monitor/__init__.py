@@ -1,6 +1,7 @@
 """Samsung EHS Monitor: read-only SmartThings status polling."""
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 import logging
 from pathlib import Path
@@ -18,6 +19,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .ai_export import websocket_export_performance
 from .auth import async_create_client
+from .emoncms import EmoncmsPublisher
 from .daily import DailyPerformance
 from .snapshots import SnapshotHistory
 from .frontend import RESOURCE_PATH, async_register_resources
@@ -25,7 +27,7 @@ from .dashboard import async_setup_dashboard
 from .decoder import field
 from .performance import PowerHistory, LIVE_COP_MAX_SKEW, COP_MIN_POWER_W, RollingPerformance, electrical_watts, net_heat_kw, instantaneous_cop, number, external_watts
 from .api import SmartThingsAuthError, SmartThingsClient, SmartThingsError
-from .const import DOMAIN, CONF_TOKEN, CONF_DEVICE_ID, CONF_POWER_SENSOR, DEFAULT_SCAN_INTERVAL
+from .const import DOMAIN, CONF_TOKEN, CONF_DEVICE_ID, CONF_POWER_SENSOR, DEFAULT_SCAN_INTERVAL, CONF_EMONCMS_ENABLED, CONF_EMONCMS_URL, CONF_EMONCMS_NODE, CONF_EMONCMS_KEY
 
 LOGGER = logging.getLogger(__name__)
 PLATFORMS = [Platform.SENSOR]
@@ -43,6 +45,8 @@ class SamsungEHSCoordinator(DataUpdateCoordinator[dict]):
         self.presentation_id = None
         self.diagnostic_entries = []
         self.snapshots = SnapshotHistory()
+        self.publisher = None
+        self.publisher_task = None
         self.live_power = PowerHistory()
         self.performance = RollingPerformance()
         self.daily = DailyPerformance(hass.config.time_zone, self.power_sensor)
@@ -160,6 +164,18 @@ class SamsungEHSCoordinator(DataUpdateCoordinator[dict]):
             self.update_daily(self.data, now)
             self.daily_store.async_delay_save(self.saved_daily, 10)
             self.async_update_listeners()
+            if self.publisher is not None and (self.publisher_task is None or self.publisher_task.done()):
+                self.publisher_task = self.hass.async_create_task(self.publish_emoncms(now))
+
+    async def publish_emoncms(self, now):
+        try:
+            await self.publisher.publish({t: list(row) for t, row in self.daily.ledger.items()}, now.timestamp())
+        except Exception:
+            # Never expose HTTP payloads, headers, keys, or response bodies in logs.
+            self.record_failure('Emoncms', 'Publishing failed; pending data will be retried.', key='emoncms_upload')
+        else:
+            if self.publisher.status.startswith(('Emoncms', 'Cannot', 'Power source')):
+                self.record_failure('Emoncms', self.publisher.status, key='emoncms_upload')
 
     @callback
     def external_power_changed(self, event):
@@ -242,6 +258,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except SmartThingsError as exc:
             coordinator.record_failure("API device metadata", str(exc))
             LOGGER.warning("Device metadata unavailable; electrical input power and live COP remain unknown until reload")
+    if entry.options.get(CONF_EMONCMS_ENABLED) and coordinator.power_sensor:
+        coordinator.publisher = EmoncmsPublisher(
+            async_get_clientsession(hass), Store(hass, 1, f'{DOMAIN}_{entry.entry_id}_emoncms'),
+            entry.options[CONF_EMONCMS_URL], entry.options[CONF_EMONCMS_NODE],
+            entry.options[CONF_EMONCMS_KEY], coordinator.power_sensor, hass.config.time_zone)
+        await coordinator.publisher.load(datetime.now(timezone.utc).timestamp())
     await coordinator.async_config_entry_first_refresh()
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     if coordinator.power_sensor:
@@ -265,6 +287,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
         coordinator = hass.data[DOMAIN][entry.entry_id]
+        coordinator.publisher = None  # Stop heartbeat scheduling before awaiting shutdown.
+        if coordinator.publisher_task is not None and not coordinator.publisher_task.done():
+            coordinator.publisher_task.cancel()
+            try:
+                await coordinator.publisher_task
+            except asyncio.CancelledError:
+                pass
         if coordinator.data is not None:
             coordinator.update_daily(coordinator.data, datetime.now(timezone.utc))
         await coordinator.daily_store.async_save(coordinator.saved_daily())

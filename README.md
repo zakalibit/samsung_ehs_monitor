@@ -165,3 +165,27 @@ Live COP is unknown when the current or matched electrical power is 10 W or belo
 Positive cloud heat paired with external power at or below 10 W is a contradictory interval, so daily heat/electricity/COP accounting excludes both sides and reduces paired coverage. Recent accepted intervals can be retracted when their power is corrected to standby; missing data alone still cannot erase accepted measurements. Fresh off-state zero heat, standby electricity paired with zero heat, and signed defrost heat remain accounted. Seven-day Samsung-counter accounting similarly rejects positive-heat intervals whose average counter-derived power is at or below 10 W. This is a standby guard, not a cap on plausible COP at active power.
 
 The change prevents new inflated results and revises intervals still within the 30-minute replay window. Older finalized history is not automatically repaired; it needs separate review rather than silently rewriting past measurements.
+
+## Publish corrected performance to Emoncms
+
+In **Settings → Devices & services → Samsung EHS Monitor → Configure**, retain your external heat-pump power sensor and enable **Publish corrected data to Emoncms**. Set URL `https://emoncms.org`, node **28**, and enter your Emoncms **write** API key locally. Leave the key blank on subsequent edits to keep it. Publishing is disabled by default and needs no changes to the existing temperature uploader on node 27. The integration still sends no commands to the heat pump.
+
+This publisher sends one-minute heat/electricity records only once they have left the 30-minute correction window. Allow about **30–32 minutes after enabling** for the first inputs to appear. Values use the original minute-end timestamp, not upload time. Collection starts with the next full minute after first enabling; existing history is not backfilled. Heat/electricity are calculated from the same observed paired intervals, with the standby conflict guard applied. Negative defrost heat is retained. Powers are averages over the valid seconds within each minute; `paired_coverage` reports partial coverage. Missing periods do not add energy. Use the explicit cumulative feeds for period COP, rather than reintegrating the power feeds.
+
+On Emoncms **Inputs**, node 28 will contain:
+
+| Input | Meaning | Input process |
+| --- | --- | --- |
+| `heatpump_elec` | Paired electrical power, W | Log to feed |
+| `heatpump_elec_kwh` | Cumulative paired electrical energy, kWh | Log to feed |
+| `heatpump_heat` | Estimated signed thermal power, W | Log to feed |
+| `heatpump_heat_kwh` | Cumulative paired signed heat energy, kWh | Log to feed |
+| `paired_coverage` | Valid paired seconds as a percentage of the minute | Optional Log to feed |
+
+Create **new feeds**, using tag `heatpump_paired`, names such as `heatpump_paired_elec`, `heatpump_paired_elec_kwh`, `heatpump_paired_heat` and `heatpump_paired_heat_kwh`, and **60-second PHPFina/fixed intervals**. All four processes must be **Log to feed**. Do **not** attach Power to kWh, accumulators, or other additive processing to these inputs: totals are already calculated and uploads may be retried. Separate feeds preserve the old node 27 history and prevent two publishers writing into the same feeds.
+
+In **My Heatpump → spanner**, explicitly select the four new paired feeds for electricity power/energy and heat power/energy. Retain the temperature feeds from node 27. Set the app start date to the beginning of the new feed collection, and identify the results as **estimated**, not heat-meter measured. The new electrical totals intentionally cover matched intervals and may be lower than the old full electricity totals when coverage is incomplete; do not mix an old full-electricity energy feed with the new paired heat feed for COP.
+
+The **Emoncms publishing status** sensor and integration **Logs** tab report waiting/upload problems. Network failures retain a durable outbox; restarts retry identical timestamps and cumulative values, without accumulating energy twice when using Log to feed. The cursor and cumulative totals survive reloads, disable/re-enable, and write-key rotation. Catch-up is limited to the local ledger's 35-day retention and 120 minutes per upload; unavailable older data cannot be recovered. Do not delete the publisher storage and reuse the same remote feeds: that would reset cumulative totals. Changing the power sensor, Home Assistant timezone, or Emoncms account requires a new node and new feeds. Each destination node keeps its own checkpoint, and another heat-pump entry cannot be configured to use the same destination node.
+
+This enables Emoncms uploads only; it does not publish a system listing on HeatpumpMonitor.org. No Emoncms credentials are included in AI exports or diagnostics, sent in URL parameters, or logged. A live Emoncms account is still required to verify input/feed configuration after installation.
