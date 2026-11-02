@@ -10,7 +10,7 @@ from homeassistant.core import callback
 from .emoncms import valid_url
 from .api import SmartThingsAuthError, SmartThingsError, is_ehs_status
 from .auth import async_create_client
-from .const import CONF_DEVICE_ID, CONF_TOKEN, CONF_POWER_SENSOR, CONF_CREATE_DASHBOARD, CONF_SMARTTHINGS_ENTRY, DOMAIN, CONF_EMONCMS_ENABLED, CONF_EMONCMS_URL, CONF_EMONCMS_NODE, CONF_EMONCMS_KEY
+from .const import CONF_DEVICE_ID, CONF_TOKEN, CONF_POWER_SENSOR, CONF_CREATE_DASHBOARD, CONF_SMARTTHINGS_ENTRY, DOMAIN, CONF_EMONCMS_ENABLED, CONF_EMONCMS_URL, CONF_EMONCMS_NODE, CONF_EMONCMS_KEY, CONF_EMONCMS_LIVE_NODE
 
 
 class SamsungEHSConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -147,6 +147,7 @@ class SamsungEHSOptionsFlow(config_entries.OptionsFlow):
             publishing = bool(user_input.get(CONF_EMONCMS_ENABLED, False))
             url = user_input.get(CONF_EMONCMS_URL, 'https://emoncms.org').strip().rstrip('/')
             node = user_input.get(CONF_EMONCMS_NODE, 28)
+            live_node = user_input.get(CONF_EMONCMS_LIVE_NODE, 27)
             key = (user_input.get(CONF_EMONCMS_KEY) or self.config_entry.options.get(CONF_EMONCMS_KEY, '')).strip()
             if publishing:
                 if not entity_id:
@@ -155,6 +156,8 @@ class SamsungEHSOptionsFlow(config_entries.OptionsFlow):
                     errors[CONF_EMONCMS_URL] = 'invalid_emoncms_url'
                 if isinstance(node, bool) or not isinstance(node, int) or not 1 <= node <= 65535:
                     errors[CONF_EMONCMS_NODE] = 'invalid_emoncms_node'
+                if isinstance(live_node, bool) or not isinstance(live_node, int) or not 1 <= live_node <= 65535:
+                    errors[CONF_EMONCMS_LIVE_NODE] = 'invalid_emoncms_node'
                 if len(key) != 32 or any(char not in '0123456789abcdefABCDEF' for char in key):
                     errors[CONF_EMONCMS_KEY] = 'invalid_emoncms_key'
                 for entry in self.hass.config_entries.async_entries(DOMAIN):
@@ -166,11 +169,13 @@ class SamsungEHSOptionsFlow(config_entries.OptionsFlow):
                     **self.config_entry.options, CONF_POWER_SENSOR: entity_id,
                     CONF_CREATE_DASHBOARD: user_input.get(CONF_CREATE_DASHBOARD, False),
                     CONF_EMONCMS_ENABLED: publishing, CONF_EMONCMS_URL: url,
-                    CONF_EMONCMS_NODE: node, CONF_EMONCMS_KEY: key})
+                    CONF_EMONCMS_NODE: node, CONF_EMONCMS_KEY: key,
+                    CONF_EMONCMS_LIVE_NODE: live_node})
         schema = vol.Schema({
             vol.Optional(CONF_EMONCMS_ENABLED, default=False): bool,
             vol.Optional(CONF_EMONCMS_URL, default='https://emoncms.org'): str,
             vol.Optional(CONF_EMONCMS_NODE, default=28): int,
+            vol.Optional(CONF_EMONCMS_LIVE_NODE, default=27): int,
             vol.Optional(CONF_EMONCMS_KEY): selector.TextSelector(selector.TextSelectorConfig(
                 type=selector.TextSelectorType.PASSWORD)),
             vol.Optional(CONF_CREATE_DASHBOARD, default=False): bool,

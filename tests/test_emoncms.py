@@ -5,12 +5,13 @@ from hashlib import sha256
 import json
 from math import isfinite
 from types import SimpleNamespace as NS
-from unittest.mock import Mock
+from unittest.mock import Mock, AsyncMock, patch
 from urllib.parse import urlsplit
 import unittest
 
 from test_auth import production, ClientError
 from test_external_power import Options, flow_scope
+import test_external_power as external
 
 scope = production('emoncms.py', dict(asyncio=asyncio, sha256=sha256, json=json,
     isfinite=isfinite, urlsplit=urlsplit, ClientError=ClientError,
@@ -84,6 +85,51 @@ class PublisherTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(restored.session.post.call_args.kwargs['data']['data'], original)
         self.assertIn('Publishing', restored.status)
 
+    async def test_live_upload_is_immediate_and_does_not_change_paired_checkpoint(self):
+        p = await self.make()
+        before = deepcopy(p.store.data)
+        await p.publish_live({'sensor.renamed_outdoors': -2.5, 'sensor.power': 0,
+                              'invalid': float('nan')}, 10)
+        rows = json.loads(p.session.post.call_args.kwargs['data']['data'])
+        self.assertEqual(rows, [[10,27,{'sensor.renamed_outdoors':-2.5,'sensor.power':0}]])
+        self.assertEqual(p.store.data, before)
+        self.assertIn('node 27', p.live_status)
+        await p.publish_live({}, 20)
+        self.assertEqual(p.session.post.call_count, 1)
+
+    def test_live_inputs_preserve_entity_names_units_and_filter_device_and_sensor_types(self):
+        def entity(key, entity_id, **changes):
+            return NS(**dict(dict(platform='samsung_ehs_monitor', domain='sensor',
+                      disabled_by=None, unique_id='pump_'+key, entity_id=entity_id), **changes))
+        entities = [entity('electrical_input_power','sensor.power'),
+                    entity('outdoor_temperature','sensor.renamed_outdoors'),
+                    entity('room_temperature','sensor.indoor'),
+                    entity('water_flow_temperature','sensor.disabled',disabled_by='user'),
+                    entity('water_return_temperature','sensor.other',unique_id='other_water_return_temperature'),
+                    entity('fsv_2011','sensor.setting')]
+        states = {'sensor.power':NS(state='1.2',attributes={'unit_of_measurement':'kW'}),
+                  'sensor.renamed_outdoors':NS(state='23',attributes={'unit_of_measurement':'°F'}),
+                  'sensor.indoor':NS(state='unavailable',attributes={'unit_of_measurement':'°C'})}
+        self.assertEqual(scope['live_inputs'](entities, NS(get=states.get), 'pump'),
+                         {'sensor.power':1200,'sensor.renamed_outdoors':-5})
+
+    async def test_live_failure_does_not_mutate_finalized_outbox(self):
+        p = await self.make(session=NS(post=Mock(return_value=Response(status=403))))
+        before = deepcopy(p.state)
+        await p.publish_live({'sensor.power':1000},10)
+        self.assertIn('403',p.live_status)
+        self.assertEqual(p.state,before)
+        self.assertNotIn('secret-key',p.live_status)
+
+    async def test_coordinator_live_upload_does_not_wait_for_or_call_paired_upload(self):
+        coordinator, _ = external.ExternalPowerTests().make()
+        coordinator.publisher = NS(publish_live=AsyncMock(), publish=AsyncMock(),live_status='Publishing live readings to node 27.')
+        registry = NS(async_get=lambda hass:object(),async_entries_for_config_entry=lambda registry, entry:[])
+        with patch.dict(external.scope, er=registry, live_inputs=scope['live_inputs']):
+            await coordinator.publish_live_emoncms(external.datetime.now(external.timezone.utc))
+        coordinator.publisher.publish_live.assert_awaited_once()
+        coordinator.publisher.publish.assert_not_awaited()
+
     async def test_rejected_response_retains_pending_and_never_echoes_body(self):
         p = await self.make(session=NS(post=Mock(return_value=Response(text='secret-key invalid'))))
         await p.publish({60:[1,1,60]},1920)
@@ -135,6 +181,7 @@ class PublisherOptionsTests(unittest.IsolatedAsyncioTestCase):
         result = await self.flow().async_step_init({'power_sensor':'sensor.power','emoncms_enabled':True,'emoncms_api_key':''})
         self.assertEqual(result['data']['emoncms_api_key'],'a'*32)
         self.assertEqual(result['data']['emoncms_node'],28)
+        self.assertEqual(result['data']['emoncms_live_node'],27)
 
     async def test_requires_external_power_and_valid_key(self):
         flow = self.flow()

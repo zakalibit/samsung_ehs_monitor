@@ -164,7 +164,7 @@ class FlowStub:
 flow_scope = dict(config_entries=NS(OptionsFlow=FlowStub), CONF_POWER_SENSOR="power_sensor",
                   DOMAIN="samsung_ehs_monitor", CONF_CREATE_DASHBOARD="create_dashboard",
                   CONF_EMONCMS_ENABLED="emoncms_enabled", CONF_EMONCMS_URL="emoncms_url",
-                  CONF_EMONCMS_NODE="emoncms_node", CONF_EMONCMS_KEY="emoncms_api_key",
+                  CONF_EMONCMS_NODE="emoncms_node", CONF_EMONCMS_LIVE_NODE="emoncms_live_node", CONF_EMONCMS_KEY="emoncms_api_key",
                   valid_url=lambda url: url.startswith("https://"), er=NS(async_get=lambda h: h.registry),
                   vol=NS(Schema=lambda v: v, Optional=lambda v, **kw: v),
                   selector=NS(TextSelector=lambda v:v, TextSelectorConfig=lambda **kw:kw,

@@ -59,6 +59,9 @@ class SamsungEHSSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self):
+        if self.key == 'emoncms_status' and self.coordinator.publisher:
+            return {'live_node': self.coordinator.publisher.live_node,
+                    'live_status': self.coordinator.publisher.live_status}
         if self.key in {"estimated_heat_energy_7d", "electrical_energy_7d", "estimated_cop_7d"}:
             return {
                 "window_hours": 168,
